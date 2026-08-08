@@ -50,6 +50,25 @@ export function parseNdjsonBuffer(buffer: string): { values: ChatChunk[]; remain
   return { values, remainder };
 }
 
+export function trimMessagesForContext(messages: ChatMessage[], profile: ResourceProfile): ChatMessage[] {
+  const reservedTokens = profile.maxOutputTokens + 512;
+  const characterBudget = Math.max(1024, (profile.contextTokens - reservedTokens) * 4);
+  const selected: ChatMessage[] = [];
+  let used = 0;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    const cost = message.content.length + 32;
+    if (selected.length && used + cost > characterBudget) break;
+    if (!selected.length && cost > characterBudget) {
+      selected.push({ ...message, content: message.content.slice(-characterBudget) });
+      break;
+    }
+    selected.push(message);
+    used += cost;
+  }
+  return selected.reverse();
+}
+
 export class OllamaClient {
   constructor(private readonly baseUrl = DEFAULT_BASE_URL) {}
 
@@ -83,7 +102,9 @@ export class OllamaClient {
         model,
         messages: [
           { role: 'system', content: AURA_SYSTEM_PROMPT },
-          ...messages.filter(message => message.role !== 'system').map(({ role, content }) => ({ role, content }))
+          ...trimMessagesForContext(messages, profile)
+            .filter(message => message.role !== 'system')
+            .map(({ role, content }) => ({ role, content }))
         ],
         stream: true,
         think: false,

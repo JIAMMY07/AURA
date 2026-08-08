@@ -1,21 +1,25 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri_plugin_sql::{Migration, MigrationKind};
+mod commands;
+mod crypto;
+
+use commands::AppState;
+use tauri::Manager;
 
 fn main() {
-    let migrations = vec![Migration {
-        version: 1,
-        description: "initial_local_storage",
-        sql: include_str!("../migrations/0001_initial.sql"),
-        kind: MigrationKind::Up,
-    }];
-
     tauri::Builder::default()
-        .plugin(
-            tauri_plugin_sql::Builder::default()
-                .add_migrations("sqlite:aura.db", migrations)
-                .build(),
-        )
+        .setup(|app| {
+            let app_data = app.path().app_data_dir()?;
+            app.manage(AppState::open(&app_data)?);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::storage::storage_load,
+            commands::storage::storage_save,
+            commands::storage::storage_clear,
+            commands::policy::policy_evaluate,
+            commands::audit::audit_verify,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Local AI Assistant");
 }

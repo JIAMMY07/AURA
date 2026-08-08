@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseNdjsonBuffer } from './ollama';
+import { parseNdjsonBuffer, trimMessagesForContext, type ChatMessage } from './ollama';
+import { RESOURCE_PROFILES } from '../core/modelProfiles';
 
 describe('Ollama NDJSON parser', () => {
   it('parses complete lines and preserves an incomplete remainder', () => {
@@ -15,5 +16,14 @@ describe('Ollama NDJSON parser', () => {
   it('parses a streamed Ollama error object', () => {
     const result = parseNdjsonBuffer('{"error":"modello terminato"}\n');
     expect(result.values[0].error).toBe('modello terminato');
+  });
+
+  it('keeps the newest messages inside the context budget', () => {
+    const messages: ChatMessage[] = Array.from({ length: 20 }, (_, index) => ({
+      id: String(index), role: 'user', content: 'x'.repeat(1000), createdAt: new Date(index).toISOString()
+    }));
+    const selected = trimMessagesForContext(messages, RESOURCE_PROFILES.Leggero);
+    expect(selected.at(-1)?.id).toBe('19');
+    expect(selected.length).toBeLessThan(messages.length);
   });
 });

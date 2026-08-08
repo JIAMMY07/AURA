@@ -1,1 +1,1 @@
-{"main-capability":{"identifier":"main-capability","description":"Minimal permissions for the main application window","local":true,"windows":["main"],"permissions":["core:default","sql:default","sql:allow-execute"]}}
+{"main-capability":{"identifier":"main-capability","description":"Minimal permissions for the main application window","local":true,"windows":["main"],"permissions":["core:default"]}}

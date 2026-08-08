@@ -10,11 +10,11 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "security": { "capabilities": ["main-capability"] },
+    "security": {
+      "capabilities": ["main-capability"],
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://127.0.0.1:11434; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+    },
     "windows": [{"label":"main","title":"AURA — Local AI Assistant","width":1180,"height":760,"minWidth":900,"minHeight":620}]
-  },
-  "plugins": {
-    "sql": { "preload": ["sqlite:aura.db"] }
   },
   "bundle": {
     "active": true,

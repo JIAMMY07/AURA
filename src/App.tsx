@@ -6,8 +6,9 @@ import {
 import { OllamaClient, type ChatMessage, type OllamaModel } from './adapters/ollama';
 import { choosePreferredModel, RESOURCE_PROFILES, type ResourceProfileName } from './core/modelProfiles';
 import { evaluate } from './core/policyEngine';
-import type { ActionPlan, Risk } from './core/types';
+import type { ActionPlan, PolicyResult, Risk } from './core/types';
 import { createConversationStore, type StorageMode } from './services/conversationStore';
+import { evaluateAction, verifyAudit, type AuditStatus } from './adapters/security';
 
 const client = new OllamaClient();
 const conversationStore = createConversationStore();
@@ -36,6 +37,7 @@ export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [storageMode, setStorageMode] = useState<StorageMode>(conversationStore.mode);
+  const [auditStatus, setAuditStatus] = useState<AuditStatus>();
   const [draft, setDraft] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState('');
@@ -51,7 +53,7 @@ export function App() {
     scope: demos[selectedAction].scope,
     reversible: selectedAction !== 2
   }), [selectedAction]);
-  const result = evaluate(plan);
+  const [result, setResult] = useState<PolicyResult>(() => evaluate(plan));
 
   async function refreshOllama() {
     setConnection('checking');
@@ -79,6 +81,17 @@ export function App() {
   }
 
   useEffect(() => { void refreshOllama(); }, []);
+  useEffect(() => {
+    let active = true;
+    void evaluateAction(plan)
+      .then(decision => {
+        if (!active) return;
+        setResult(decision);
+        return verifyAudit().then(status => { if (active) setAuditStatus(status); });
+      })
+      .catch(() => { if (active) setResult({ decision: 'deny', reason: 'Policy backend non disponibile.' }); });
+    return () => { active = false; };
+  }, [plan]);
   useEffect(() => {
     let active = true;
     void conversationStore.load()
@@ -124,6 +137,7 @@ export function App() {
     setTokensPerSecond(undefined);
     const controller = new AbortController();
     abortRef.current = controller;
+    const generationTimeout = window.setTimeout(() => controller.abort(), 180_000);
 
     try {
       const stream = await client.chat(
@@ -148,6 +162,7 @@ export function App() {
         ));
       }
     } finally {
+      window.clearTimeout(generationTimeout);
       abortRef.current = undefined;
       setStreaming(false);
     }
@@ -240,7 +255,8 @@ export function App() {
         <article><span>Modello</span><strong>{selectedModel || 'Non connesso'}</strong></article>
         <article><span>Profilo</span><strong>{profileName} · {profile.contextTokens / 1024}k</strong></article>
         <article><span>Prestazioni</span><strong>{tokensPerSecond ? `${tokensPerSecond.toFixed(1)} tok/s` : 'In attesa'}</strong></article>
-        <article><span>Memoria chat</span><strong><Database /> {storageMode === 'sqlite' ? 'SQLite' : storageMode === 'browser-fallback' ? 'Locale' : 'RAM'} · {messages.length}/100</strong></article>
+        <article><span>Memoria chat</span><strong><Database /> {storageMode === 'encrypted-windows' ? 'Cifrata' : storageMode === 'browser-fallback' ? 'Locale' : 'RAM'} · {messages.length}/100</strong></article>
+        <article><span>Audit</span><strong><ShieldCheck /> {auditStatus ? `${auditStatus.valid ? 'Integro' : 'Alterato'} · ${auditStatus.count}` : 'Anteprima web'}</strong></article>
       </section>
     </main>
   </div>;

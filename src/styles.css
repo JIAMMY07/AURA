@@ -76,7 +76,7 @@ select:focus, textarea:focus { border-color: #65d6b8; box-shadow: 0 0 0 3px #65d
 .decision { display: grid; gap: 4px; min-width: 250px; padding: 12px; border-radius: 9px; }
 .decision span { font-size: 12px; }.decision.allow { background: #13352d; }.decision.confirm { background: #433414; }.decision.sandbox { background: #3b2030; }.decision.deny { background: #4a1820; }
 
-.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 11px; }
 .stats article { min-width: 0; background: #0d1423; border: 1px solid #27334a; border-radius: 12px; padding: 14px; }
 .stats span { display: block; color: #8190a7; font-size: 11px; }
 .stats strong { display: flex; align-items: center; gap: 6px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }

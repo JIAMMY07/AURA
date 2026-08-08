@@ -7,6 +7,7 @@ Assistente desktop Windows local-first per chat privata, voce, strumenti PC cont
 - Fase 0: architettura, backlog e repository completati.
 - Fase 1: shell UI, policy engine e simulatore azioni completati.
 - Fase 2: Ollama streaming, profili hardware, SQLite e installer Windows completati.
+- Fase 2.5: backend Rust fidato, cifratura Windows, audit HMAC e CSP completati.
 - Fase 3: prossima — push-to-talk, Whisper locale e Piper.
 
 ## Installazione già configurata sul PC
@@ -26,6 +27,6 @@ pnpm build
 pnpm build:windows:debug
 ```
 
-L'app usa `http://127.0.0.1:11434` e non invia le conversazioni a servizi cloud. In Tauri, la cronologia è salvata in `aura.db`; l'anteprima web usa esclusivamente un fallback locale.
+L'app usa `http://127.0.0.1:11434` e non invia le conversazioni a servizi cloud. In Tauri, la cronologia è cifrata in `aura.db`; la chiave principale è custodita dal Windows Credential Manager. L'anteprima web usa esclusivamente un fallback locale.
 
-Documentazione: `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.
+Documentazione: `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, `docs/HARDENING.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.

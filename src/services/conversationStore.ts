@@ -1,12 +1,10 @@
-import { isTauri } from '@tauri-apps/api/core';
-import Database from '@tauri-apps/plugin-sql';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { ChatMessage } from '../adapters/ollama';
 
 const STORAGE_KEY = 'aura.conversation.v1';
 const MAX_MESSAGES = 100;
-const DATABASE_URL = 'sqlite:aura.db';
 
-export type StorageMode = 'sqlite' | 'browser-fallback' | 'memory';
+export type StorageMode = 'encrypted-windows' | 'browser-fallback' | 'memory';
 
 export interface ConversationStore {
   readonly mode: StorageMode;
@@ -50,54 +48,15 @@ export class LocalConversationStore implements ConversationStore {
   }
 }
 
-class SqliteConversationStore implements ConversationStore {
-  readonly mode = 'sqlite' as const;
-  private database?: Database;
-
-  private async db(): Promise<Database> {
-    this.database ??= await Database.load(DATABASE_URL);
-    return this.database;
-  }
-
-  async load(): Promise<ChatMessage[]> {
-    const db = await this.db();
-    const rows = await db.select<Array<{ id: string; role: ChatMessage['role']; content: string; created_at: string }>>(
-      'SELECT id, role, content, created_at FROM messages ORDER BY sequence DESC LIMIT $1',
-      [MAX_MESSAGES]
-    );
-    return rows.reverse().filter(row => isChatMessage({
-      id: row.id,
-      role: row.role,
-      content: row.content,
-      createdAt: row.created_at
-    })).map(row => ({ id: row.id, role: row.role, content: row.content, createdAt: row.created_at }));
-  }
-
-  async save(messages: ChatMessage[]): Promise<void> {
-    const db = await this.db();
-    for (const message of messages.filter(isChatMessage).slice(-MAX_MESSAGES)) {
-      await db.execute(
-        `INSERT INTO messages (id, session_id, role, content, created_at)
-         VALUES ($1, 'default', $2, $3, $4)
-         ON CONFLICT(id) DO UPDATE SET content = excluded.content`,
-        [message.id, message.role, message.content, message.createdAt]
-      );
-    }
-    await db.execute(
-      `DELETE FROM messages WHERE session_id = 'default' AND id NOT IN
-       (SELECT id FROM messages WHERE session_id = 'default' ORDER BY sequence DESC LIMIT $1)`,
-      [MAX_MESSAGES]
-    );
-  }
-
-  async clear(): Promise<void> {
-    const db = await this.db();
-    await db.execute("DELETE FROM messages WHERE session_id = 'default'");
-  }
+class TauriConversationStore implements ConversationStore {
+  readonly mode = 'encrypted-windows' as const;
+  load(): Promise<ChatMessage[]> { return invoke('storage_load'); }
+  save(messages: ChatMessage[]): Promise<void> { return invoke('storage_save', { messages }); }
+  clear(): Promise<void> { return invoke('storage_clear'); }
 }
 
 export function createConversationStore(): ConversationStore {
-  if (isTauri()) return new SqliteConversationStore();
+  if (isTauri()) return new TauriConversationStore();
   const storage = typeof window !== 'undefined' ? window.localStorage : undefined;
   return new LocalConversationStore(storage);
 }

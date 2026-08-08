@@ -32,6 +32,19 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 
 **Uscita:** chat locale streaming, arrestabile, funzionante offline; nessun dato lascia il PC.
 
+## Fase 2.5 — Hardening del confine desktop (completata)
+
+- [x] SQL arbitrario rimosso dalla WebView.
+- [x] Storage e policy spostati in comandi Rust tipizzati.
+- [x] Messaggi cifrati AES-256-GCM con chiave protetta dal Credential Manager Windows.
+- [x] Migrazione automatica dei messaggi legacy in chiaro.
+- [x] Audit concatenato e autenticato con HMAC, verificabile dall'interfaccia.
+- [x] Policy backend deny-by-default e rischio non controllabile dal modello.
+- [x] CSP stretta, timeout generazione e finestra conversazione basata sui token.
+- [x] Test Rust per cifratura, manomissione, policy e migrazione.
+
+**Uscita:** la WebView non può scrivere SQL; dati locali e audit superano test di alterazione. Restano obbligatori approval token e runner isolato prima di introdurre azioni PC.
+
 ## Fase 3 — Voce locale
 
 - [ ] Acquisizione microfono push-to-talk e indicatore evidente.

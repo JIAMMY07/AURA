@@ -20,6 +20,10 @@ security:
   key_protection: windows-dpapi
   encryption: [aes-256-gcm, xchacha20-poly1305]
   password_kdf: argon2id
+  trusted_boundary: rust-backend
+  webview_sql: forbidden
+  content_security_policy: strict-localhost
+  audit_integrity: sha256-chain-hmac
 capabilities:
   phase_1: [chat-shell, policy-engine, audit-preview, resource-profile]
   phase_2: [ollama, sqlite-history, model-manager]
