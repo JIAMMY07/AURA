@@ -46,6 +46,11 @@ voice:
   engine: whisper.cpp
   model: base-multilingual
   language: it
+  preferred_device_label: OPPO Enco Buds2 Pro Hands-Free
+  device_selection: explicit-with-label-fallback
+  accepted_capture_rates_hz: [8000, 16000, 44100, 48000]
+  transcription_rate_hz: 16000
+  concurrent_transcriptions: 1
   max_recording_seconds: 30
   auto_submit: false
   auto_execute: false

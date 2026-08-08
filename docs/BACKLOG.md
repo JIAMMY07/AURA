@@ -63,8 +63,11 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 - [x] Acquisizione microfono push-to-talk, limite 30 secondi e indicatore evidente.
 - [x] Whisper locale multilingue con lingua italiana forzata, Silero VAD e confidenza media token.
 - [x] Trascrizione depositata come bozza, mai inviata o eseguita automaticamente.
+- [x] Selezione microfono, preferenza OPPO, hot-plug Bluetooth e ricampionamento 8/16/48 kHz.
+- [x] Diagnostica livello audio, cleanup su errore e singolo worker Whisper.
 - [ ] Piper locale con interruzione immediata della sintesi.
 - [ ] Conferma obbligatoria se la trascrizione sensibile è ambigua.
+- [ ] AudioWorklet e scorciatoia push-to-talk configurabile.
 
 **Uscita:** comando vocale end-to-end senza cloud; microfono inattivo fuori dalla finestra dichiarata.
 

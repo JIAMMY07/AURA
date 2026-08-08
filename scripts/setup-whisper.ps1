@@ -41,6 +41,14 @@ try {
   Copy-Item -LiteralPath (Join-Path $releaseDirectory 'whisper-cli.exe') -Destination $binDestination -Force
   Copy-Item -LiteralPath (Join-Path $releaseDirectory 'whisper.dll') -Destination $binDestination -Force
   Copy-Item -Path (Join-Path $releaseDirectory 'ggml*.dll') -Destination $binDestination -Force
+  $allowedRuntime = @('whisper-cli.exe', 'whisper.dll') + @(
+    Get-ChildItem -LiteralPath $releaseDirectory -Filter 'ggml*.dll' -File | ForEach-Object Name
+  )
+  Get-ChildItem -LiteralPath $binDestination -File | Where-Object {
+    $_.Name -notin $allowedRuntime
+  } | ForEach-Object {
+    Remove-Item -LiteralPath $_.FullName -Force
+  }
   Copy-Item -LiteralPath $model -Destination (Join-Path $modelDestination 'ggml-base.bin') -Force
   Copy-Item -LiteralPath $vadModel -Destination (Join-Path $modelDestination 'ggml-silero-v6.2.0.bin') -Force
   Write-Host "Whisper locale installato in $Destination"

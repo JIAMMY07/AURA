@@ -254,7 +254,11 @@ mod tests {
         crypto::Crypto,
     };
     use rusqlite::Connection;
-    use std::{collections::HashMap, path::PathBuf, sync::Mutex};
+    use std::{
+        collections::HashMap,
+        path::PathBuf,
+        sync::{atomic::AtomicBool, Arc, Mutex},
+    };
 
     fn state() -> AppState {
         let db = Connection::open_in_memory().expect("database");
@@ -266,6 +270,7 @@ mod tests {
             crypto: Crypto::from_master([5_u8; 32]).expect("crypto"),
             app_data: PathBuf::new(),
             cancellations: Mutex::new(HashMap::new()),
+            voice_busy: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -313,6 +318,7 @@ mod tests {
             crypto,
             app_data: PathBuf::new(),
             cancellations: Mutex::new(HashMap::new()),
+            voice_busy: Arc::new(AtomicBool::new(false)),
         };
         assert!(verify_audit(&state).expect("verify").valid);
     }

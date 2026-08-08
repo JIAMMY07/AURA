@@ -22,6 +22,7 @@ Assistente desktop Windows local-first per chat privata, voce, strumenti PC cont
 - `qwen3-embedding:0.6b` per memoria semantica e RAG;
 - `granite3-guardian:2b` per classificazione locale dei rischi;
 - `whisper.cpp` 1.9.2 con modello multilingue `base` per la dettatura locale.
+- selezione e riconnessione del microfono Bluetooth `OPPO Enco Buds2 Pro Hands-Free`.
 
 ## Sviluppo
 

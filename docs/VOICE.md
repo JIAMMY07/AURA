@@ -6,6 +6,20 @@ La prima parte della Fase 3 è operativa su Windows. Il pulsante microfono attiv
 
 Il backend convalida struttura, formato, dimensione e durata, crea un file temporaneo, avvia `whisper.cpp` senza finestra, legge il risultato e cancella audio e trascrizione temporanei. Il testo viene inserito nel composer come bozza: non parte automaticamente verso il modello e non può eseguire azioni PC.
 
+## Cuffie OPPO Enco Buds2 Pro
+
+Windows rileva le cuffie associate e il relativo servizio `OPPO Enco Buds2 Pro Hands-Free`. AURA non salva un identificatore hardware Windows e non forza un endpoint invisibile: usa l'elenco microfoni autorizzato da WebView2, ricorda localmente la scelta e ritrova il dispositivo anche se l'identificatore web cambia dopo una nuova associazione.
+
+Procedura d'uso:
+
+1. indossare e connettere le cuffie a Windows;
+2. in AURA premere **Aggiorna microfoni** e concedere l'accesso la prima volta;
+3. scegliere `OPPO Enco Buds2 Pro Hands-Free` nel selettore Microfono;
+4. premere il pulsante microfono, parlare e premerlo nuovamente per terminare;
+5. controllare la trascrizione prima di inviarla.
+
+Il microfono Bluetooth usa il profilo vivavoce, distinto dal profilo stereo A2DP. Durante la cattura Windows può ridurre la qualità di riproduzione: non è una conversione di AURA. La pipeline accetta anche catture Bluetooth a 8 kHz e le ricampiona localmente a 16 kHz per Whisper.
+
 ## Installazione riproducibile
 
 ```powershell
@@ -29,12 +43,15 @@ Lo script installa nei dati applicativi:
 - file temporanei con nomi casuali nello spazio dati AURA;
 - nessuna rete usata durante la trascrizione;
 - VAD locale e confidenza media calcolata dalle probabilità dei token Whisper;
+- scelta esplicita del microfono, preferenza OPPO e aggiornamento su connessione/disconnessione;
+- rilascio delle tracce audio anche in caso di errore e blocco delle trascrizioni concorrenti;
+- diagnostica locale per segnale troppo basso e saturazione;
 - la trascrizione deve essere controllata dall'utente prima dell'invio.
 
 ## Lavoro residuo
 
 - calibrazione della soglia di confidenza su registrazioni reali dell'utente;
-- test con microfono fisico e rumore ambientale;
+- test fisico con OPPO connesse, voce reale e rumore ambientale;
 - Piper per sintesi vocale interrompibile;
-- gestione esplicita dei dispositivi di input;
+- migrazione da `ScriptProcessorNode` ad `AudioWorklet` prima dell'ascolto continuo;
 - accessibilità e scorciatoia push-to-talk configurabile.

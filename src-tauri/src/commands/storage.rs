@@ -17,6 +17,7 @@ pub struct AppState {
     pub(crate) crypto: Crypto,
     pub(crate) app_data: PathBuf,
     pub(crate) cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    pub(crate) voice_busy: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -49,6 +50,7 @@ impl AppState {
             crypto,
             app_data: app_data.to_path_buf(),
             cancellations: Mutex::new(HashMap::new()),
+            voice_busy: Arc::new(AtomicBool::new(false)),
         })
     }
 }

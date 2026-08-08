@@ -5,6 +5,10 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 use tauri::State;
@@ -12,6 +16,7 @@ use uuid::Uuid;
 use wait_timeout::ChildExt;
 
 const MAX_WAV_BYTES: usize = 2 * 1024 * 1024;
+const MAX_BASE64_BYTES: usize = MAX_WAV_BYTES.div_ceil(3) * 4;
 const MAX_AUDIO_SECONDS: f64 = 30.5;
 
 #[derive(Serialize)]
@@ -49,13 +54,33 @@ pub async fn voice_transcribe(
     wav_base64: String,
     state: State<'_, AppState>,
 ) -> Result<VoiceTranscript, String> {
-    if wav_base64.len() > MAX_WAV_BYTES * 2 {
+    if wav_base64.len() > MAX_BASE64_BYTES {
         return Err("Registrazione vocale troppo grande.".to_string());
     }
+    let busy = VoiceBusyGuard::acquire(Arc::clone(&state.voice_busy))?;
     let app_data = state.app_data.clone();
-    tauri::async_runtime::spawn_blocking(move || transcribe(&app_data, &wav_base64))
-        .await
-        .map_err(|_| "Worker vocale interrotto.".to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let _busy = busy;
+        transcribe(&app_data, &wav_base64)
+    })
+    .await
+    .map_err(|_| "Worker vocale interrotto.".to_string())?
+}
+
+struct VoiceBusyGuard(Arc<AtomicBool>);
+
+impl VoiceBusyGuard {
+    fn acquire(flag: Arc<AtomicBool>) -> Result<Self, String> {
+        flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| Self(flag))
+            .map_err(|_| "Una trascrizione vocale è già in corso.".to_string())
+    }
+}
+
+impl Drop for VoiceBusyGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 struct VoicePaths {
@@ -195,24 +220,43 @@ fn validate_wav(bytes: &[u8]) -> Result<f64, String> {
     if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return Err("Formato audio non WAV.".to_string());
     }
+    let riff_size = u32::from_le_bytes(
+        bytes[4..8]
+            .try_into()
+            .map_err(|_| "Header WAV non valido.".to_string())?,
+    ) as usize;
+    let logical_end = riff_size
+        .checked_add(8)
+        .filter(|end| *end >= 44 && *end <= bytes.len())
+        .ok_or_else(|| "Dimensione RIFF non valida.".to_string())?;
     let mut offset = 12_usize;
     let mut valid_format = false;
     let mut data_bytes = None;
-    while offset.saturating_add(8) <= bytes.len() {
+    while offset.saturating_add(8) <= logical_end {
         let id = &bytes[offset..offset + 4];
         let size = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize;
         let start = offset + 8;
         let end = start.saturating_add(size);
-        if end > bytes.len() {
+        if end > logical_end {
             return Err("Struttura WAV non valida.".to_string());
         }
         if id == b"fmt " && size >= 16 {
             let format = u16::from_le_bytes(bytes[start..start + 2].try_into().unwrap());
             let channels = u16::from_le_bytes(bytes[start + 2..start + 4].try_into().unwrap());
             let sample_rate = u32::from_le_bytes(bytes[start + 4..start + 8].try_into().unwrap());
+            let byte_rate = u32::from_le_bytes(bytes[start + 8..start + 12].try_into().unwrap());
+            let block_align = u16::from_le_bytes(bytes[start + 12..start + 14].try_into().unwrap());
             let bits = u16::from_le_bytes(bytes[start + 14..start + 16].try_into().unwrap());
-            valid_format = format == 1 && channels == 1 && sample_rate == 16_000 && bits == 16;
+            valid_format = format == 1
+                && channels == 1
+                && sample_rate == 16_000
+                && byte_rate == 32_000
+                && block_align == 2
+                && bits == 16;
         } else if id == b"data" {
+            if !size.is_multiple_of(2) {
+                return Err("Chunk PCM16 con dimensione non valida.".to_string());
+            }
             data_bytes = Some(size);
         }
         offset = end + (size % 2);
@@ -230,8 +274,9 @@ fn validate_wav(bytes: &[u8]) -> Result<f64, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_transcript, validate_wav};
+    use super::{parse_transcript, validate_wav, VoiceBusyGuard};
     use std::io::Write;
+    use std::sync::{atomic::AtomicBool, Arc};
 
     fn wav(seconds: f64) -> Vec<u8> {
         let samples = (16_000.0 * seconds) as u32;
@@ -263,6 +308,9 @@ mod tests {
     fn rejects_wrong_format_and_long_audio() {
         assert!(validate_wav(b"not a wav").is_err());
         assert!(validate_wav(&wav(31.0)).is_err());
+        let mut invalid_riff = wav(1.0);
+        invalid_riff[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(validate_wav(&invalid_riff).is_err());
     }
 
     #[test]
@@ -276,5 +324,14 @@ mod tests {
         let result = parse_transcript(file.path(), 1.0).expect("parse transcript");
         assert_eq!(result.text, "ciao");
         assert!((result.confidence - 0.7).abs() < 0.001);
+    }
+
+    #[test]
+    fn allows_only_one_voice_worker_at_a_time() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let first = VoiceBusyGuard::acquire(Arc::clone(&flag)).expect("first worker");
+        assert!(VoiceBusyGuard::acquire(Arc::clone(&flag)).is_err());
+        drop(first);
+        assert!(VoiceBusyGuard::acquire(flag).is_ok());
     }
 }

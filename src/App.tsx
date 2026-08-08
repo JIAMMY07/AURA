@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, Bot, CircleStop, Database, Mic, RefreshCw, Send,
+  Activity, Bot, CircleStop, Database, Headphones, Mic, RefreshCw, Send,
   ShieldCheck, SquareTerminal, Trash2, Wifi, WifiOff
 } from 'lucide-react';
 import { OllamaClient, type ChatMessage, type OllamaModel } from './adapters/ollama';
@@ -9,10 +9,14 @@ import { evaluate } from './core/policyEngine';
 import type { ActionPlan, PolicyResult, Risk } from './core/types';
 import { createConversationStore, type StorageMode } from './services/conversationStore';
 import { evaluateAction, verifyAudit, type AuditStatus } from './adapters/security';
-import { getVoiceStatus, transcribeVoice, VoiceRecorder, type VoiceStatus } from './adapters/voice';
+import {
+  choosePreferredVoiceInput, describeMicrophoneError, getVoiceStatus, listVoiceInputDevices,
+  transcribeVoice, VoiceRecorder, type VoiceDevicePreference, type VoiceInputDevice, type VoiceStatus
+} from './adapters/voice';
 
 const client = new OllamaClient();
 const conversationStore = createConversationStore();
+const VOICE_DEVICE_KEY = 'aura.voice-device.v1';
 const demos: { label: string; risk: Risk; capability: string; scope: string }[] = [
   { label: 'Controlla utilizzo del PC', risk: 'safe', capability: 'system.inspect', scope: 'metriche locali' },
   { label: 'Organizza una cartella', risk: 'moderate', capability: 'files.organize', scope: 'cartella selezionata' },
@@ -27,6 +31,29 @@ function newMessage(role: ChatMessage['role'], content: string): ChatMessage {
 
 function formatBytes(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+}
+
+function loadVoiceDevicePreference(): VoiceDevicePreference {
+  try {
+    const raw = window.localStorage.getItem(VOICE_DEVICE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as VoiceDevicePreference;
+    return {
+      deviceId: typeof parsed.deviceId === 'string' ? parsed.deviceId : undefined,
+      label: typeof parsed.label === 'string' ? parsed.label : undefined
+    };
+  } catch {
+    return {};
+  }
+}
+
+function saveVoiceDevicePreference(device?: VoiceInputDevice) {
+  try {
+    if (!device) window.localStorage.removeItem(VOICE_DEVICE_KEY);
+    else window.localStorage.setItem(VOICE_DEVICE_KEY, JSON.stringify({ deviceId: device.deviceId, label: device.label }));
+  } catch {
+    // La preferenza è opzionale: la registrazione continua anche senza localStorage.
+  }
 }
 
 export function App() {
@@ -47,11 +74,18 @@ export function App() {
   const [voiceRecording, setVoiceRecording] = useState(false);
   const [voiceProcessing, setVoiceProcessing] = useState(false);
   const [voiceNotice, setVoiceNotice] = useState('');
+  const [voiceDevices, setVoiceDevices] = useState<VoiceInputDevice[]>([]);
+  const [selectedVoiceDeviceId, setSelectedVoiceDeviceId] = useState(() => loadVoiceDevicePreference().deviceId ?? '');
+  const [voiceDeviceBusy, setVoiceDeviceBusy] = useState(false);
+  const [activeVoiceLabel, setActiveVoiceLabel] = useState('');
   const abortRef = useRef<AbortController | undefined>(undefined);
   const streamBufferRef = useRef('');
   const streamFlushRef = useRef<number | undefined>(undefined);
   const recorderRef = useRef<VoiceRecorder | undefined>(undefined);
   const voiceTimeoutRef = useRef<number | undefined>(undefined);
+  const activeVoiceLabelRef = useRef('');
+  const chatRef = useRef<HTMLElement | null>(null);
+  const chatPinnedRef = useRef(true);
   const profile = RESOURCE_PROFILES[profileName];
 
   const plan: ActionPlan = useMemo(() => ({
@@ -91,6 +125,22 @@ export function App() {
 
   useEffect(() => { void refreshOllama(); }, []);
   useEffect(() => { void getVoiceStatus().then(setVoiceStatus).catch(() => undefined); }, []);
+  useEffect(() => {
+    if (!voiceStatus?.available || !navigator.mediaDevices) return;
+    void refreshVoiceDevices(false);
+    const handleDeviceChange = () => { void refreshVoiceDevices(false); };
+    navigator.mediaDevices.addEventListener?.('devicechange', handleDeviceChange);
+    return () => navigator.mediaDevices.removeEventListener?.('devicechange', handleDeviceChange);
+  }, [voiceStatus?.available]);
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    if (voiceTimeoutRef.current) window.clearTimeout(voiceTimeoutRef.current);
+    void recorderRef.current?.cancel();
+  }, []);
+  useEffect(() => {
+    if (!chatPinnedRef.current) return;
+    chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: streaming ? 'auto' : 'smooth' });
+  }, [messages, streaming]);
   useEffect(() => {
     let active = true;
     void evaluateAction(plan)
@@ -140,6 +190,7 @@ export function App() {
     const userMessage = newMessage('user', prompt);
     const assistantMessage = newMessage('assistant', '');
     const history = [...messages, userMessage];
+    chatPinnedRef.current = true;
     setMessages([...history, assistantMessage]);
     setDraft('');
     setError('');
@@ -165,6 +216,9 @@ export function App() {
       flushStreamTokens(assistantMessage.id);
       if (cause instanceof DOMException && cause.name === 'AbortError') {
         setError('Generazione interrotta. La risposta parziale è stata conservata.');
+        setMessages(current => current.filter(message =>
+          message.id !== assistantMessage.id || message.content.length > 0
+        ));
       } else {
         setError(cause instanceof Error ? cause.message : 'Errore durante la generazione.');
         setMessages(current => current.filter(message =>
@@ -208,22 +262,67 @@ export function App() {
     setError('');
   }
 
+  async function refreshVoiceDevices(requestPermission: boolean): Promise<VoiceInputDevice | undefined> {
+    setVoiceDeviceBusy(true);
+    try {
+      const devices = await listVoiceInputDevices(requestPermission);
+      setVoiceDevices(devices);
+      const preference = loadVoiceDevicePreference();
+      const preferredOppoMissing = /oppo/i.test(preference.label ?? '')
+        && !devices.some(device => device.deviceId === preference.deviceId || device.label === preference.label);
+      const selected = preferredOppoMissing ? undefined : choosePreferredVoiceInput(devices, preference);
+      setSelectedVoiceDeviceId(selected?.deviceId ?? '');
+      if (selected && (/oppo/i.test(selected.label) || preference.deviceId || preference.label)) {
+        saveVoiceDevicePreference(selected);
+      }
+      if (requestPermission) {
+        setVoiceNotice(selected
+          ? `Microfono pronto: ${selected.label || 'dispositivo predefinito'}.`
+          : 'Nessun microfono di ingresso rilevato. Connetti le cuffie OPPO.');
+      }
+      return selected;
+    } catch (cause) {
+      if (requestPermission) setError(describeMicrophoneError(cause));
+      return undefined;
+    } finally {
+      setVoiceDeviceBusy(false);
+    }
+  }
+
+  function selectVoiceDevice(deviceId: string) {
+    const device = voiceDevices.find(candidate => candidate.deviceId === deviceId);
+    setSelectedVoiceDeviceId(deviceId);
+    saveVoiceDevicePreference(device);
+    setVoiceNotice(device ? `Microfono selezionato: ${device.label || 'dispositivo predefinito'}.` : '');
+  }
+
   async function startVoiceRecording() {
     if (!voiceStatus?.available || voiceRecording || voiceProcessing) return;
     setError('');
     setVoiceNotice('');
     const recorder = new VoiceRecorder();
+    recorderRef.current = recorder;
     try {
-      await recorder.start();
-      recorderRef.current = recorder;
+      let device = voiceDevices.find(candidate => candidate.deviceId === selectedVoiceDeviceId);
+      if (!device || !device.label) device = await refreshVoiceDevices(true);
+      if (!device) throw new DOMException('No microphone', 'NotFoundError');
+      const capture = await recorder.start(device.deviceId || undefined, () => {
+        setError('Il microfono si è disconnesso durante la registrazione. Riconnetti le cuffie OPPO.');
+        void finishVoiceRecording(true);
+      });
+      activeVoiceLabelRef.current = capture.label;
+      setActiveVoiceLabel(capture.label);
+      setVoiceNotice(`Registrazione da ${capture.label} · ${Math.round(capture.sampleRate / 1000)} kHz.`);
       setVoiceRecording(true);
       voiceTimeoutRef.current = window.setTimeout(() => { void finishVoiceRecording(); }, voiceStatus.maxSeconds * 1000);
-    } catch {
-      setError('Microfono non disponibile o autorizzazione negata da Windows.');
+    } catch (cause) {
+      if (recorderRef.current === recorder) recorderRef.current = undefined;
+      await recorder.cancel();
+      setError(describeMicrophoneError(cause));
     }
   }
 
-  async function finishVoiceRecording() {
+  async function finishVoiceRecording(disconnected = false) {
     const recorder = recorderRef.current;
     if (!recorder) return;
     recorderRef.current = undefined;
@@ -231,15 +330,27 @@ export function App() {
     voiceTimeoutRef.current = undefined;
     setVoiceRecording(false);
     setVoiceProcessing(true);
-    setError('');
+    if (!disconnected) setError('');
     try {
-      const wav = await recorder.stop();
-      const transcript = await transcribeVoice(wav);
+      const recording = await recorder.stop();
+      let transcript;
+      try {
+        transcript = await transcribeVoice(recording.wav);
+      } finally {
+        recording.wav.fill(0);
+      }
       setDraft(transcript.text);
       const confidence = Math.round(transcript.confidence * 100);
-      setVoiceNotice(`Trascrizione locale pronta (${transcript.durationSeconds.toFixed(1)} s, confidenza ${confidence}%). ${confidence < 70 ? 'Confidenza bassa: rileggila con particolare attenzione.' : 'Controllala prima di inviarla.'}`);
+      const quality = recording.rms < 0.006
+        ? ' Segnale molto basso: avvicina il microfono o controlla il profilo vivavoce.'
+        : recording.peak >= 0.995
+          ? ' Audio vicino alla saturazione: abbassa il livello del microfono.'
+          : '';
+      const interrupted = disconnected ? ' Registrazione interrotta dalla disconnessione.' : '';
+      setVoiceNotice(`Trascrizione locale da ${activeVoiceLabelRef.current || 'microfono'} (${transcript.durationSeconds.toFixed(1)} s, confidenza ${confidence}%). ${confidence < 70 ? 'Confidenza bassa: rileggila con particolare attenzione.' : 'Controllala prima di inviarla.'}${quality}${interrupted}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(disconnected ? `Cuffie disconnesse. ${message}` : message);
     } finally {
       setVoiceProcessing(false);
     }
@@ -281,7 +392,41 @@ export function App() {
         {selectedModel && <span className="model-detail">{models.find(model => model.name === selectedModel)?.details?.parameter_size ?? 'dimensione ignota'} · {formatBytes(models.find(model => model.name === selectedModel)?.size ?? 0)}</span>}
       </section>
 
-      <section className="chat" aria-live="polite">
+      {voiceStatus?.available && <section className="voice-device-bar">
+        <Headphones />
+        <label htmlFor="voice-device">Microfono</label>
+        <select
+          id="voice-device"
+          aria-label="Microfono per i comandi vocali"
+          value={selectedVoiceDeviceId}
+          onChange={event => selectVoiceDevice(event.target.value)}
+          disabled={voiceRecording || voiceProcessing || voiceDeviceBusy}
+        >
+          {!voiceDevices.length && <option value="">Autorizza e rileva microfoni</option>}
+          {voiceDevices.map((device, index) => <option key={device.deviceId || `${device.groupId}-${index}`} value={device.deviceId}>
+            {device.label || `Microfono ${index + 1}`}
+          </option>)}
+        </select>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={() => void refreshVoiceDevices(true)}
+          disabled={voiceRecording || voiceProcessing || voiceDeviceBusy}
+          title="Aggiorna e autorizza i microfoni"
+          aria-label="Aggiorna microfoni"
+        ><RefreshCw /></button>
+        <small>{voiceDevices.some(device => /oppo/i.test(device.label)) ? 'Cuffie OPPO rilevate' : 'Connetti le OPPO per usare il loro microfono'}</small>
+      </section>}
+
+      <section
+        className="chat"
+        aria-live="polite"
+        ref={chatRef}
+        onScroll={event => {
+          const target = event.currentTarget;
+          chatPinnedRef.current = target.scrollHeight - target.scrollTop - target.clientHeight < 80;
+        }}
+      >
         {!messages.length && <div className="empty-chat">
           <div className="orb"><Mic /></div>
           <p>Chat locale pronta</p>
@@ -294,12 +439,12 @@ export function App() {
       </section>
 
       {error && <div className="error-banner">{error}</div>}
-      {voiceRecording && <div className="voice-banner"><span /> Microfono attivo — premi di nuovo per terminare</div>}
+      {voiceRecording && <div className="voice-banner"><span /> {activeVoiceLabel || 'Microfono'} attivo — premi di nuovo per terminare</div>}
       {voiceProcessing && <div className="voice-banner processing"><RefreshCw /> Trascrizione locale in corso…</div>}
       {voiceNotice && <div className="voice-notice">{voiceNotice}</div>}
       <form className="composer" onSubmit={sendMessage}>
         <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Scrivi un comando o una domanda…" rows={2} onKeyDown={event => {
-          if (event.key === 'Enter' && !event.shiftKey) {
+          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
             event.currentTarget.form?.requestSubmit();
           }
