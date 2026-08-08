@@ -23,6 +23,7 @@ Whisper e Piper non sono modelli Ollama: restano servizi locali separati rispett
 - Scaricare il modello specializzato dopo l'uso con `keep_alive: 0` quando viene invocato da un job isolato.
 - Non mostrare i modelli con sola capacità `embedding` nel selettore della chat.
 - Non eseguire mai codice generato direttamente: il modello di coding produce una proposta da validare, testare in sandbox e sottoporre alla policy.
+- Per output con formato rigoroso usare prima `qwen3:4b-instruct`; nei test locali `qwen2.5-coder:3b` ha mostrato migliore velocità ma ha aggiunto Markdown non richiesto. Il coder resta specialista per analisi e proposta di patch, non per output machine-readable senza validazione.
 - Il guardrail aggiunge un segnale di rischio, ma non sostituisce policy deterministiche, approvazioni, sandbox o controlli Windows.
 - `granite3-guardian:2b` ha superato il controllo differenziale in inglese (`No` innocuo, `Yes` rischioso), ma ha prodotto falsi positivi nei test italiani. Finché non viene calibrato, è solo consultivo, riceve input normalizzato in inglese e non può autorizzare o bloccare azioni da solo.
 

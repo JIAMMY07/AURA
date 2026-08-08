@@ -112,18 +112,29 @@ pub fn pc_list_processes(state: State<'_, AppState>) -> Result<Vec<ProcessSnapsh
 #[tauri::command]
 pub fn pc_open_application(
     application: String,
-    confirmed: bool,
     state: State<'_, AppState>,
-) -> Result<(), String> {
-    if !confirmed {
-        return Err("Conferma esplicita richiesta per aprire un'applicazione.".to_string());
-    }
+) -> Result<bool, String> {
     let (executable, label) = match application.as_str() {
         "calculator" => ("calc.exe", "Calcolatrice"),
         "notepad" => ("notepad.exe", "Blocco note"),
         "explorer" => ("explorer.exe", "Esplora file"),
         _ => return Err("Applicazione non presente nell'allowlist.".to_string()),
     };
+    if !confirm_native_action(
+        "Conferma azione AURA",
+        &format!("AURA vuole aprire {label}. Consentire questa singola azione?"),
+    ) {
+        append_audit(
+            &state,
+            "pc-open-application",
+            "tool.cancelled",
+            "confirm",
+            &format!("Apertura annullata: {label}"),
+            &serde_json::json!({ "capability": "app.open", "application": application })
+                .to_string(),
+        )?;
+        return Ok(false);
+    }
     Command::new(executable)
         .spawn()
         .map_err(|_| "Avvio applicazione Windows fallito.".to_string())?;
@@ -134,7 +145,32 @@ pub fn pc_open_application(
         "confirm",
         &format!("Apertura controllata: {label}"),
         &serde_json::json!({ "capability": "app.open", "application": application }).to_string(),
-    )
+    )?;
+    Ok(true)
+}
+
+#[cfg(windows)]
+pub(crate) fn confirm_native_action(title: &str, message: &str) -> bool {
+    use std::ptr::null_mut;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONQUESTION, MB_SETFOREGROUND, MB_YESNO,
+    };
+    let title = title.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
+    let message = message.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
+    // SAFETY: both buffers are NUL-terminated UTF-16 and live for the duration of the call.
+    unsafe {
+        MessageBoxW(
+            null_mut(),
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 | MB_SETFOREGROUND,
+        ) == IDYES
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn confirm_native_action(_title: &str, _message: &str) -> bool {
+    false
 }
 
 #[cfg(test)]

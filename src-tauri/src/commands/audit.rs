@@ -270,6 +270,7 @@ mod tests {
             crypto: Crypto::from_master([5_u8; 32]).expect("crypto"),
             app_data: PathBuf::new(),
             cancellations: Mutex::new(HashMap::new()),
+            generation_busy: Arc::new(AtomicBool::new(false)),
             voice_busy: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -318,6 +319,7 @@ mod tests {
             crypto,
             app_data: PathBuf::new(),
             cancellations: Mutex::new(HashMap::new()),
+            generation_busy: Arc::new(AtomicBool::new(false)),
             voice_busy: Arc::new(AtomicBool::new(false)),
         };
         assert!(verify_audit(&state).expect("verify").valid);

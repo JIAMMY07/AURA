@@ -30,7 +30,7 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 - [x] Limiti token, timeout e selezione modello con fallback.
 - [x] Build desktop, MSI e installer NSIS verificati.
 
-**Uscita:** chat locale streaming, arrestabile, funzionante offline; nessun dato lascia il PC.
+**Uscita:** chat e inferenza locali, streaming e arrestabili. Il contenuto AURA non usa servizi cloud; la diagnostica del runtime WebView2 resta governata da Windows e impedisce di dichiarare zero egress assoluto.
 
 ## Fase 2.5 — Hardening del confine desktop (completata)
 

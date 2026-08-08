@@ -280,12 +280,10 @@ export function App() {
           `• ${process.name} · PID ${process.pid} · ${formatBytes(process.memoryBytes)}`
         ).join('\n')}`);
       } else if (command.kind === 'open-app') {
-        const confirmed = window.confirm(`AURA vuole aprire ${command.label}. Confermi questa singola azione?`);
-        if (!confirmed) complete(`Apertura di ${command.label} annullata: nessuna azione eseguita.`);
-        else {
-          await openApplication(command.application);
+        const opened = await openApplication(command.application);
+        if (opened) {
           complete(`${command.label} avviata tramite tool tipizzato e allowlist. Nessuna shell è stata usata.`);
-        }
+        } else complete(`Apertura di ${command.label} annullata nel dialogo nativo Windows.`);
       } else {
         const status = await getSandboxStatus();
         setSandbox(status);

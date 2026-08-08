@@ -10,7 +10,7 @@ La verifica del 8 agosto 2026 non ha trovato Windows Sandbox, una distribuzione 
 
 Per questo AURA opera in modalità fail-closed:
 
-1. registra obiettivo e metadati in un report JSON;
+1. registra obiettivo e metadati in un report JSON cifrato AES-256-GCM;
 2. non esegue il codice proposto;
 3. marca ogni proposta `proposal-only` e `manual-review-required`;
 4. conserva una voce nell'audit autenticato.
@@ -38,4 +38,3 @@ Ogni tentativo produce dati strutturati: obiettivo, ipotesi, test fallito, causa
 ## Condizioni per abilitare l'esecuzione
 
 L'esecuzione resterà disabilitata anche dopo la semplice installazione di un runtime. Occorre verificare immagine base, isolamento rete, mount, quote, distruzione dell'ambiente, scansione output e flusso di approvazione. Solo una suite di abuso superata potrà cambiare `executionAllowed`.
-

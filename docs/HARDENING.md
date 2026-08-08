@@ -30,6 +30,8 @@ La cancellazione dell'intero database resta rilevabile soltanto tramite backup o
 
 La Content Security Policy nega oggetti, frame, form, origini non dichiarate e connessioni HTTP dalla WebView. Ollama è raggiunto soltanto dal backend Rust su `127.0.0.1:11434`; redirect e modelli cloud/remoti vengono rifiutati.
 
+La CSP controlla il contenuto applicativo, non la diagnostica interna di Microsoft Edge WebView2. Nei test il processo browser WebView2 ha aperto connessioni HTTPS Microsoft anche con i normali flag di background disabilitati. Windows governa questa telemetria tramite **Privacy e sicurezza → Diagnostica e feedback**; AURA non dichiara quindi zero egress assoluto del runtime.
+
 ## Limiti residui
 
 - L'installer non è firmato.

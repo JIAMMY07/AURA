@@ -10,6 +10,7 @@ fn main() {
     tauri::Builder::default()
         .setup(|app| {
             let app_data = app.path().app_data_dir()?;
+            commands::voice::cleanup_stale_audio(&app_data)?;
             app.manage(AppState::open(&app_data)?);
             Ok(())
         })

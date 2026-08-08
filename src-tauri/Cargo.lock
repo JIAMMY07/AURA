@@ -1829,7 +1829,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 
 [[package]]
 name = "local-ai-assistant"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -1849,6 +1849,7 @@ dependencies = [
  "tempfile",
  "uuid",
  "wait-timeout",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 

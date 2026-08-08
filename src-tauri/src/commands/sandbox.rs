@@ -1,4 +1,5 @@
 use super::{audit::append_audit, storage::AppState};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 use std::{env, fs, path::Path, process::Command};
 use tauri::State;
@@ -44,7 +45,7 @@ pub fn evolution_record_proposal(
     fs::create_dir_all(&reports)
         .map_err(|_| "Cartella report Evolution Lab non disponibile.".to_string())?;
     let report_path = reports.join(format!("{id}.json"));
-    let report = serde_json::json!({
+    let sensitive_report = serde_json::json!({
         "version": 1,
         "id": id,
         "projectName": project_name,
@@ -56,6 +57,20 @@ pub fn evolution_record_proposal(
         },
         "state": "proposal-only",
         "promotion": "manual-review-required"
+    });
+    let aad = format!("aura-evolution-report:v1:{id}");
+    let (ciphertext, nonce) = state.crypto.encrypt_with_aad(
+        &serde_json::to_string(&sensitive_report)
+            .map_err(|_| "Report Evolution Lab non serializzabile.".to_string())?,
+        aad.as_bytes(),
+    )?;
+    let report = serde_json::json!({
+        "version": 1,
+        "id": id,
+        "encryption": "AES-256-GCM",
+        "ciphertext": STANDARD.encode(ciphertext),
+        "nonce": STANDARD.encode(nonce),
+        "contentLogged": false
     });
     fs::write(
         &report_path,
@@ -69,7 +84,7 @@ pub fn evolution_record_proposal(
         "evolution.proposed",
         "sandbox",
         "Proposta registrata senza esecuzione",
-        &serde_json::json!({ "projectName": project_name, "executable": false }).to_string(),
+        r#"{"contentLogged":false,"executable":false}"#,
     )?;
     Ok(EvolutionProposal {
         id,

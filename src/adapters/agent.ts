@@ -66,9 +66,9 @@ export async function listProcesses(): Promise<ProcessSnapshot[]> {
   return invoke<ProcessSnapshot[]>('pc_list_processes');
 }
 
-export async function openApplication(application: 'calculator' | 'notepad' | 'explorer'): Promise<void> {
+export async function openApplication(application: 'calculator' | 'notepad' | 'explorer'): Promise<boolean> {
   requireDesktop();
-  return invoke('pc_open_application', { application, confirmed: true });
+  return invoke<boolean>('pc_open_application', { application });
 }
 
 export async function loadProfile(): Promise<PersonalProfile | null> {

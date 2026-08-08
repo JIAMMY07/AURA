@@ -9,3 +9,4 @@ vite.config.d.ts
 .env.*
 data/
 vault/
+.audit-work/

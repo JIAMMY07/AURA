@@ -100,6 +100,25 @@ fn voice_paths(app_data: &Path) -> VoicePaths {
     }
 }
 
+pub(crate) fn cleanup_stale_audio(app_data: &Path) -> std::io::Result<()> {
+    let temporary = app_data.join("voice").join("tmp");
+    if !temporary.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(&temporary)? {
+        let entry = entry?;
+        let path = entry.path();
+        let disposable = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| matches!(extension, "wav" | "json"));
+        if disposable && entry.file_type()?.is_file() {
+            fs::remove_file(path)?;
+        }
+    }
+    Ok(())
+}
+
 fn transcribe(app_data: &Path, encoded: &str) -> Result<VoiceTranscript, String> {
     let paths = voice_paths(app_data);
     if !paths.cli.is_file() || !paths.model.is_file() || !paths.vad_model.is_file() {
@@ -274,9 +293,9 @@ fn validate_wav(bytes: &[u8]) -> Result<f64, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_transcript, validate_wav, VoiceBusyGuard};
-    use std::io::Write;
+    use super::{cleanup_stale_audio, parse_transcript, validate_wav, VoiceBusyGuard};
     use std::sync::{atomic::AtomicBool, Arc};
+    use std::{fs, io::Write};
 
     fn wav(seconds: f64) -> Vec<u8> {
         let samples = (16_000.0 * seconds) as u32;
@@ -296,6 +315,21 @@ mod tests {
         bytes.extend_from_slice(&data_size.to_le_bytes());
         bytes.resize(44 + data_size as usize, 0);
         bytes
+    }
+
+    #[test]
+    fn removes_only_stale_voice_artifacts_on_startup() {
+        let root = std::env::temp_dir().join(format!("aura-voice-test-{}", uuid::Uuid::new_v4()));
+        let temporary = root.join("voice").join("tmp");
+        fs::create_dir_all(&temporary).expect("temporary folder");
+        fs::write(temporary.join("stale.wav"), b"synthetic audio").expect("wav fixture");
+        fs::write(temporary.join("stale.json"), b"{}").expect("json fixture");
+        fs::write(temporary.join("keep.txt"), b"keep").expect("unrelated fixture");
+        cleanup_stale_audio(&root).expect("cleanup");
+        assert!(!temporary.join("stale.wav").exists());
+        assert!(!temporary.join("stale.json").exists());
+        assert!(temporary.join("keep.txt").exists());
+        fs::remove_dir_all(&root).expect("remove test fixture");
     }
 
     #[test]

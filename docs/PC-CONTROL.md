@@ -6,7 +6,7 @@ AURA dispone di un primo registro di strumenti Windows realmente eseguiti dal ba
 
 - stato di CPU, memoria, dischi, uptime e numero di processi;
 - elenco dei 50 processi con maggiore uso di memoria, senza riga di comando né variabili d'ambiente;
-- apertura di Calcolatrice, Blocco note ed Esplora file dopo conferma visibile.
+- apertura di Calcolatrice, Blocco note ed Esplora file dopo conferma nativa Windows emessa dal backend.
 
 I comandi locali sono riconosciuti con grammatica deterministica. Il modello non produce nomi di eseguibili e non riceve una shell. Stringhe come `powershell`, comandi concatenati, percorsi o programmi fuori allowlist vengono rifiutati.
 
@@ -24,4 +24,3 @@ La dettatura vocale deposita sempre il testo nella casella di composizione: l'ut
 ## Limiti e prossimi gate
 
 Questa versione non modifica file, non termina processi, non installa software, non cambia configurazioni di sicurezza e non eleva privilegi. Prima di aggiungere capacità scriventi servono token di approvazione monouso emessi dal backend, canonicalizzazione dei percorsi, timeout, rollback, kill switch e test contro injection e race condition.
-
