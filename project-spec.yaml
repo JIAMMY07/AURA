@@ -1,0 +1,33 @@
+project:
+  name: Local AI Assistant
+  platform: windows
+  architecture: local-first
+  ui: tauri-react-typescript
+  default_language: it
+hardware_profile:
+  cpu: AMD Ryzen 7 5700X
+  ram_gib: 48
+  gpu: NVIDIA RTX 2060
+  vram_gib: 6
+  default_model_class: 7b-q4
+  context_tokens: 8192
+security:
+  default_mode: workspace-write
+  approvals: on-request
+  shell_freeform: forbidden
+  network_default: disabled
+  secrets_store: windows-credential-manager
+  key_protection: windows-dpapi
+  encryption: [aes-256-gcm, xchacha20-poly1305]
+  password_kdf: argon2id
+capabilities:
+  phase_1: [chat-shell, policy-engine, audit-preview, resource-profile]
+  phase_2: [ollama, sqlite-history, model-manager]
+  phase_3: [push-to-talk, whisper, piper]
+  phase_4: [safe-pc-tools, writable-roots, rollback]
+  phase_5: [document-library, incremental-rag, citations]
+  phase_6: [isolated-browser, web-research, manual-takeover]
+  phase_7: [api-connectors, oauth, openapi, webhooks]
+  phase_8: [sandbox-evolution, plugin-manifests, vm-tests]
+  phase_9: [defensive-security, defender, patch-report]
+non_goals: [minecraft, offensive-security, credential-extraction, autonomous-privilege-escalation]
