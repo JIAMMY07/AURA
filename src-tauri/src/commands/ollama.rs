@@ -1,3 +1,4 @@
+use super::profile::agent_context;
 use super::storage::AppState;
 use futures_util::StreamExt;
 use reqwest::{redirect::Policy, Client};
@@ -112,6 +113,12 @@ pub async fn ollama_chat(
         .capabilities
         .iter()
         .any(|capability| capability.eq_ignore_ascii_case("thinking"));
+    let personal_context = agent_context(&state)?;
+    let system_prompt = if personal_context.is_empty() {
+        SYSTEM_PROMPT.to_string()
+    } else {
+        format!("{SYSTEM_PROMPT}\n\n{personal_context}")
+    };
 
     let cancellation = Arc::new(AtomicBool::new(false));
     {
@@ -125,7 +132,14 @@ pub async fn ollama_chat(
         active.insert(request.request_id.clone(), Arc::clone(&cancellation));
     }
 
-    let result = stream_chat(&request, on_event, cancellation, supports_thinking).await;
+    let result = stream_chat(
+        &request,
+        on_event,
+        cancellation,
+        supports_thinking,
+        &system_prompt,
+    )
+    .await;
     if let Ok(mut active) = state.cancellations.lock() {
         active.remove(&request.request_id);
     }
@@ -192,11 +206,12 @@ async fn stream_chat(
     on_event: Channel<OllamaEvent>,
     cancellation: Arc<AtomicBool>,
     supports_thinking: bool,
+    system_prompt: &str,
 ) -> Result<ChatResult, String> {
     let (context_tokens, max_output_tokens, temperature, keep_alive) = profile(&request.profile)?;
     let messages = trim_messages(&request.messages, context_tokens, max_output_tokens);
     let mut outbound = Vec::with_capacity(messages.len() + 1);
-    outbound.push(serde_json::json!({ "role": "system", "content": SYSTEM_PROMPT }));
+    outbound.push(serde_json::json!({ "role": "system", "content": system_prompt }));
     outbound.extend(
         messages
             .iter()

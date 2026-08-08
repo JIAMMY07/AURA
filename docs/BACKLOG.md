@@ -73,7 +73,9 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 
 ## Fase 4 — Strumenti PC sicuri
 
-- [ ] Registro tool tipizzati: apri app, note, metriche, ricerca file.
+- [x] Registro iniziale tipizzato: metriche, processi e apertura di tre app in allowlist.
+- [x] Comandi locali deterministici e nessuna shell generata dal modello.
+- [ ] Note e ricerca file in radici esplicite.
 - [ ] Radici leggibili/scrivibili esplicite e path canonicalization.
 - [ ] Dry-run, timeout, annullamento, circuit breaker e rollback.
 - [ ] Processi figli senza privilegi amministrativi e output limitato.
@@ -111,6 +113,8 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 
 ## Fase 8 — Evolution Lab in sandbox
 
+- [x] Diagnostica runtime e modalità fail-closed quando manca isolamento forte.
+- [x] Registrazione proposta/report senza esecuzione né modifica del progetto host.
 - [ ] SDK plugin, template firmato e API di capacità ristrette.
 - [ ] Sandbox usa-e-getta/Windows Sandbox o VM con snapshot.
 - [ ] SBOM, scansione dipendenze/licenze, test e report dei diff.

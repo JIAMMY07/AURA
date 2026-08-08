@@ -47,10 +47,20 @@ pub(crate) fn evaluate_capability(capability: &str) -> PolicyDecision {
             risk: "critical",
             reason: "Capability vietata dalla policy backend.",
         },
-        "system.inspect" => PolicyDecision {
+        "system.inspect" | "system.processes" => PolicyDecision {
             decision: "allow",
             risk: "safe",
             reason: "Sola lettura nello scope locale consentito.",
+        },
+        "app.open" | "profile.update" | "profile.clear" => PolicyDecision {
+            decision: "confirm",
+            risk: "moderate",
+            reason: "Consenso esplicito richiesto prima dell'azione locale.",
+        },
+        "evolution.propose" => PolicyDecision {
+            decision: "sandbox",
+            risk: "critical",
+            reason: "La proposta puo essere registrata; esecuzione e promozione richiedono isolamento forte e revisione umana.",
         },
         "files.organize" => PolicyDecision {
             decision: "confirm",
@@ -101,5 +111,12 @@ mod tests {
     #[test]
     fn file_changes_always_require_confirmation() {
         assert_eq!(evaluate_capability("files.organize").decision, "confirm");
+    }
+
+    #[test]
+    fn pc_and_evolution_capabilities_have_fixed_risk() {
+        assert_eq!(evaluate_capability("system.processes").decision, "allow");
+        assert_eq!(evaluate_capability("app.open").decision, "confirm");
+        assert_eq!(evaluate_capability("evolution.propose").decision, "sandbox");
     }
 }

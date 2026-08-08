@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, Bot, CircleStop, Database, Headphones, Mic, RefreshCw, Send,
-  ShieldCheck, SquareTerminal, Trash2, Wifi, WifiOff
+  Activity, Bot, CircleStop, Cpu, Database, FlaskConical, Headphones, Mic, RefreshCw, Send,
+  ShieldCheck, SquareTerminal, ThumbsUp, Trash2, UserRound, Wifi, WifiOff
 } from 'lucide-react';
 import { OllamaClient, type ChatMessage, type OllamaModel } from './adapters/ollama';
 import { choosePreferredModel, RESOURCE_PROFILES, type ResourceProfileName } from './core/modelProfiles';
@@ -13,10 +13,18 @@ import {
   choosePreferredVoiceInput, describeMicrophoneError, getVoiceStatus, listVoiceInputDevices,
   transcribeVoice, VoiceRecorder, type VoiceDevicePreference, type VoiceInputDevice, type VoiceStatus
 } from './adapters/voice';
+import {
+  clearProfile, getSandboxStatus, getSystemSnapshot, listProcesses, loadProfile, openApplication,
+  recordEvolutionProposal, recordFeedback, saveProfile, type PersonalProfile, type SandboxStatus
+} from './adapters/agent';
+import { parseLocalCommand, type LocalCommand } from './core/localCommands';
 
 const client = new OllamaClient();
 const conversationStore = createConversationStore();
 const VOICE_DEVICE_KEY = 'aura.voice-device.v1';
+const EMPTY_PROFILE: PersonalProfile = {
+  displayName: '', communicationStyle: '', goals: '', preferences: '', constraints: '', projectContext: ''
+};
 const demos: { label: string; risk: Risk; capability: string; scope: string }[] = [
   { label: 'Controlla utilizzo del PC', risk: 'safe', capability: 'system.inspect', scope: 'metriche locali' },
   { label: 'Organizza una cartella', risk: 'moderate', capability: 'files.organize', scope: 'cartella selezionata' },
@@ -78,6 +86,12 @@ export function App() {
   const [selectedVoiceDeviceId, setSelectedVoiceDeviceId] = useState(() => loadVoiceDevicePreference().deviceId ?? '');
   const [voiceDeviceBusy, setVoiceDeviceBusy] = useState(false);
   const [activeVoiceLabel, setActiveVoiceLabel] = useState('');
+  const [toolRunning, setToolRunning] = useState(false);
+  const [personalProfile, setPersonalProfile] = useState<PersonalProfile>(EMPTY_PROFILE);
+  const [profileNotice, setProfileNotice] = useState('');
+  const [sandbox, setSandbox] = useState<SandboxStatus>();
+  const [evolutionObjective, setEvolutionObjective] = useState('');
+  const [evolutionNotice, setEvolutionNotice] = useState('');
   const abortRef = useRef<AbortController | undefined>(undefined);
   const streamBufferRef = useRef('');
   const streamFlushRef = useRef<number | undefined>(undefined);
@@ -125,6 +139,10 @@ export function App() {
 
   useEffect(() => { void refreshOllama(); }, []);
   useEffect(() => { void getVoiceStatus().then(setVoiceStatus).catch(() => undefined); }, []);
+  useEffect(() => {
+    void loadProfile().then(profile => { if (profile) setPersonalProfile(profile); }).catch(() => undefined);
+    void getSandboxStatus().then(setSandbox).catch(() => undefined);
+  }, []);
   useEffect(() => {
     if (!voiceStatus?.available || !navigator.mediaDevices) return;
     void refreshVoiceDevices(false);
@@ -179,7 +197,13 @@ export function App() {
   async function sendMessage(event: FormEvent) {
     event.preventDefault();
     const prompt = draft.trim();
-    if (!prompt || streaming) return;
+    if (!prompt || streaming || toolRunning) return;
+    const localCommand = parseLocalCommand(prompt);
+    if (localCommand) {
+      setDraft('');
+      await executeLocalCommand(prompt, localCommand);
+      return;
+    }
     if (connection !== 'online' || !selectedModel) {
       setError(connection !== 'online'
         ? 'Avvia Ollama per usare la chat locale.'
@@ -230,6 +254,99 @@ export function App() {
       window.clearTimeout(generationTimeout);
       abortRef.current = undefined;
       setStreaming(false);
+    }
+  }
+
+  async function executeLocalCommand(prompt: string, command: LocalCommand) {
+    const userMessage = newMessage('user', prompt);
+    const assistantMessage = newMessage('assistant', 'Esecuzione strumento locale in corso…');
+    chatPinnedRef.current = true;
+    setMessages(current => [...current, userMessage, assistantMessage]);
+    setError('');
+    setToolRunning(true);
+    const complete = (content: string) => setMessages(current => current.map(message =>
+      message.id === assistantMessage.id ? { ...message, content } : message
+    ));
+    try {
+      if (command.kind === 'system-status') {
+        const snapshot = await getSystemSnapshot();
+        const disks = snapshot.disks.map(disk =>
+          `${disk.mountPoint}: ${formatBytes(disk.availableBytes)} liberi su ${formatBytes(disk.totalBytes)}`
+        ).join('\n');
+        complete(`Stato PC verificato localmente:\nCPU: ${snapshot.cpuUsagePercent.toFixed(1)}% su ${snapshot.logicalCpus} thread logici\nRAM: ${formatBytes(snapshot.memoryUsedBytes)} / ${formatBytes(snapshot.memoryTotalBytes)}\nProcessi: ${snapshot.processCount}\nUptime: ${(snapshot.uptimeSeconds / 3600).toFixed(1)} ore\nDischi:\n${disks || 'nessun dato'}`);
+      } else if (command.kind === 'process-list') {
+        const processes = await listProcesses();
+        complete(`Processi con maggiore uso di memoria (lettura locale, massimo 15 mostrati):\n${processes.slice(0, 15).map(process =>
+          `• ${process.name} · PID ${process.pid} · ${formatBytes(process.memoryBytes)}`
+        ).join('\n')}`);
+      } else if (command.kind === 'open-app') {
+        const confirmed = window.confirm(`AURA vuole aprire ${command.label}. Confermi questa singola azione?`);
+        if (!confirmed) complete(`Apertura di ${command.label} annullata: nessuna azione eseguita.`);
+        else {
+          await openApplication(command.application);
+          complete(`${command.label} avviata tramite tool tipizzato e allowlist. Nessuna shell è stata usata.`);
+        }
+      } else {
+        const status = await getSandboxStatus();
+        setSandbox(status);
+        complete(`Evolution Lab:\nIsolamento forte: ${status.strongIsolationAvailable ? 'rilevato' : 'non disponibile'}\nEsecuzione codice: ${status.executionAllowed ? 'abilitata' : 'bloccata'}\n${status.reason}`);
+      }
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      complete(`Strumento non eseguito: ${message}`);
+      setError(message);
+    } finally {
+      setToolRunning(false);
+    }
+  }
+
+  async function persistProfile() {
+    setProfileNotice('');
+    try {
+      await saveProfile(personalProfile);
+      setProfileNotice('Profilo cifrato salvato. Sarà applicato dalla prossima risposta locale.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function removeProfile() {
+    if (!window.confirm('Cancellare definitivamente profilo personale e correzioni apprese?')) return;
+    try {
+      await clearProfile();
+      setPersonalProfile(EMPTY_PROFILE);
+      setProfileNotice('Profilo e feedback cancellati definitivamente.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function submitFeedback(messageId: string, correction = false) {
+    const text = correction
+      ? window.prompt('Spiega ad AURA cosa era sbagliato e come dovrebbe comportarsi in futuro. Non inserire password o segreti.')
+      : '';
+    if (correction && !text?.trim()) return;
+    try {
+      await recordFeedback(messageId, correction ? 'correction' : 'helpful', text?.trim() ?? '');
+      setProfileNotice(correction
+        ? 'Correzione cifrata registrata e disponibile per le prossime risposte.'
+        : 'Feedback positivo registrato localmente.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function createEvolutionProposal() {
+    if (!evolutionObjective.trim()) return;
+    try {
+      const proposal = await recordEvolutionProposal(
+        personalProfile.projectContext.trim() || 'Progetto non specificato',
+        evolutionObjective.trim()
+      );
+      setEvolutionNotice(`Proposta ${proposal.id} registrata senza eseguire codice. Report: ${proposal.reportPath}`);
+      setEvolutionObjective('');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
@@ -435,6 +552,10 @@ export function App() {
         {messages.map(message => <article key={message.id} className={`message ${message.role}`}>
           <span>{message.role === 'user' ? 'Tu' : 'AURA'}</span>
           <p>{message.content || (streaming ? 'Sto elaborando…' : '')}</p>
+          {message.role === 'assistant' && message.content && <div className="feedback-actions">
+            <button type="button" onClick={() => void submitFeedback(message.id)} title="Risposta utile"><ThumbsUp /> Utile</button>
+            <button type="button" onClick={() => void submitFeedback(message.id, true)}>Correggi</button>
+          </div>}
         </article>)}
       </section>
 
@@ -453,13 +574,13 @@ export function App() {
           type="button"
           className={`voice-button ${voiceRecording ? 'recording' : ''}`}
           onClick={() => voiceRecording ? void finishVoiceRecording() : void startVoiceRecording()}
-          disabled={!voiceStatus?.available || voiceProcessing || streaming}
+          disabled={!voiceStatus?.available || voiceProcessing || streaming || toolRunning}
           title={voiceStatus?.available ? (voiceRecording ? 'Termina registrazione' : 'Avvia push-to-talk') : 'Motore vocale locale non installato'}
           aria-label={voiceRecording ? 'Termina registrazione vocale' : 'Avvia registrazione vocale'}
         ><Mic /></button>
         {streaming
           ? <button type="button" className="stop" onClick={() => abortRef.current?.abort()}><CircleStop /> Stop</button>
-          : <button type="submit" disabled={!draft.trim()}><Send /> Invia</button>}
+          : <button type="submit" disabled={!draft.trim() || toolRunning}><Send /> {toolRunning ? 'Strumento…' : 'Invia'}</button>}
         <button type="button" className="secondary" onClick={() => void resetConversation()} title="Cancella cronologia"><Trash2 /></button>
       </form>
 
@@ -472,12 +593,42 @@ export function App() {
         </div>
       </details>
 
+      <details className="personalization">
+        <summary><UserRound /> Profilo personale e adattamento</summary>
+        <p className="section-help">Dati cifrati sul PC e inviati soltanto al modello Ollama locale. Non inserire password, token, documenti d’identità o dati bancari.</p>
+        <div className="profile-grid">
+          <label>Come vuoi essere chiamato<input value={personalProfile.displayName} onChange={event => setPersonalProfile(current => ({ ...current, displayName: event.target.value }))} /></label>
+          <label>Stile di comunicazione<input value={personalProfile.communicationStyle} onChange={event => setPersonalProfile(current => ({ ...current, communicationStyle: event.target.value }))} placeholder="es. diretto, tecnico, in italiano" /></label>
+          <label>Obiettivi<textarea value={personalProfile.goals} onChange={event => setPersonalProfile(current => ({ ...current, goals: event.target.value }))} /></label>
+          <label>Preferenze<textarea value={personalProfile.preferences} onChange={event => setPersonalProfile(current => ({ ...current, preferences: event.target.value }))} /></label>
+          <label>Vincoli e cose da evitare<textarea value={personalProfile.constraints} onChange={event => setPersonalProfile(current => ({ ...current, constraints: event.target.value }))} /></label>
+          <label>Contesto del progetto corrente<textarea value={personalProfile.projectContext} onChange={event => setPersonalProfile(current => ({ ...current, projectContext: event.target.value }))} placeholder="nome, tecnologie, convenzioni, obiettivo" /></label>
+        </div>
+        <div className="settings-actions">
+          <button type="button" onClick={() => void persistProfile()}>Salva cifrato</button>
+          <button type="button" className="danger" onClick={() => void removeProfile()}>Cancella profilo e lezioni</button>
+        </div>
+        {profileNotice && <div className="voice-notice">{profileNotice}</div>}
+      </details>
+
+      <details className="personalization">
+        <summary><FlaskConical /> Evolution Lab</summary>
+        <p className="section-help">{sandbox?.reason ?? 'Verifica sandbox…'} L’accesso completo è concesso solo dentro un runtime isolato verificato; la promozione sul progetto reale resta manuale.</p>
+        <textarea value={evolutionObjective} onChange={event => setEvolutionObjective(event.target.value)} placeholder="Descrivi la funzione o il miglioramento da simulare…" rows={3} />
+        <div className="settings-actions">
+          <button type="button" onClick={() => void createEvolutionProposal()} disabled={!evolutionObjective.trim()}>Registra proposta isolata</button>
+          <button type="button" onClick={() => void getSandboxStatus().then(setSandbox)}>Aggiorna stato sandbox</button>
+        </div>
+        {evolutionNotice && <div className="voice-notice">{evolutionNotice}</div>}
+      </details>
+
       <section className="stats">
         <article><span>Modello</span><strong>{selectedModel || 'Non connesso'}</strong></article>
         <article><span>Profilo</span><strong>{profileName} · {profile.contextTokens / 1024}k</strong></article>
         <article><span>Prestazioni</span><strong>{tokensPerSecond ? `${tokensPerSecond.toFixed(1)} tok/s` : 'In attesa'}</strong></article>
         <article><span>Memoria chat</span><strong><Database /> {storageMode === 'encrypted-windows' ? 'Cifrata' : storageMode === 'browser-fallback' ? 'Locale' : 'RAM'} · {messages.length}/100</strong></article>
         <article><span>Audit</span><strong><ShieldCheck /> {auditStatus ? `${auditStatus.valid ? 'Integro' : 'Alterato'} · ${auditStatus.count}` : 'Anteprima web'}</strong></article>
+        <article><span>Controllo PC</span><strong><Cpu /> Tool tipizzati · no shell</strong></article>
       </section>
     </main>
   </div>;

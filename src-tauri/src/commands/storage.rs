@@ -199,6 +199,25 @@ pub(crate) fn harden_schema(db: &Connection) -> rusqlite::Result<()> {
     )?;
     add_column_if_missing(db, "audit_events", "event_hash", "TEXT NOT NULL DEFAULT ''")?;
     add_column_if_missing(db, "audit_events", "event_mac", "TEXT NOT NULL DEFAULT ''")?;
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS agent_profile (
+            id TEXT PRIMARY KEY CHECK(id='default'),
+            profile_cipher BLOB NOT NULL,
+            profile_nonce BLOB NOT NULL,
+            encryption_version INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS agent_feedback (
+            id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL,
+            rating TEXT NOT NULL CHECK(rating IN ('helpful','correction')),
+            correction_cipher BLOB NOT NULL,
+            correction_nonce BLOB NOT NULL,
+            encryption_version INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_agent_feedback_created ON agent_feedback(created_at DESC);",
+    )?;
     Ok(())
 }
 

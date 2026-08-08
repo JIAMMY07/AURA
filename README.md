@@ -11,6 +11,10 @@ Assistente desktop Windows local-first per chat privata, voce, strumenti PC cont
 - Fase 2.6: Ollama mediato dal backend, blocco modelli cloud e cifratura contestuale completati.
 - Fase 3: in corso — push-to-talk, Whisper locale, VAD e confidenza completati; Piper resta da fare.
 
+- Fase 4: primo nucleo operativo — metriche/processi reali e apertura controllata di tre app.
+- Fase 8: Evolution Lab fail-closed — proposta e report disponibili; esecuzione bloccata finché manca una sandbox forte verificata.
+- Personalizzazione: profilo e correzioni esplicite cifrati, usati soltanto dal modello Ollama locale.
+
 ## Installazione già configurata sul PC
 
 - Rust stable MSVC e Visual Studio 2022 Build Tools;
@@ -38,4 +42,4 @@ pnpm build:windows:debug
 
 Il backend Rust usa esclusivamente Ollama su `127.0.0.1:11434` e rifiuta modelli cloud, remoti o non GGUF. In Tauri, la cronologia è cifrata in `aura.db`; la chiave principale è custodita dal Windows Credential Manager. La voce viene convertita in WAV PCM locale e trascritta da `whisper.cpp`; la trascrizione resta una bozza finché l'utente non la invia. L'anteprima web usa esclusivamente un fallback locale.
 
-Documentazione: `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, `docs/HARDENING.md`, `docs/MODELS.md`, `docs/VOICE.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.
+Documentazione: `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, `docs/HARDENING.md`, `docs/MODELS.md`, `docs/VOICE.md`, `docs/PC-CONTROL.md`, `docs/EVOLUTION-LAB.md`, `docs/PERSONALIZATION.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.

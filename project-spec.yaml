@@ -41,6 +41,9 @@ security:
   audit_integrity: sha256-chain-hmac
   ollama_boundary: rust-backend-loopback-only
   ollama_cloud_models: forbidden
+  evolution_host_full_access: forbidden
+  evolution_execution: disabled-until-strong-sandbox-verified
+  evolution_promotion: manual-only
 voice:
   mode: push-to-talk
   engine: whisper.cpp
@@ -64,4 +67,14 @@ capabilities:
   phase_7: [api-connectors, oauth, openapi, webhooks]
   phase_8: [sandbox-evolution, plugin-manifests, vm-tests]
   phase_9: [defensive-security, defender, patch-report]
+implemented_pc_tools: [system-metrics-readonly, process-list-limited, open-calculator-confirmed, open-notepad-confirmed, open-explorer-confirmed]
+personalization:
+  encrypted_profile: true
+  explicit_feedback: true
+  local_model_context_only: true
+  preferences_are_authorization: false
+evolution_lab:
+  current_mode: proposal-only
+  strong_sandbox_detected: false
+  generated_code_execution: false
 non_goals: [minecraft, offensive-security, credential-extraction, autonomous-privilege-escalation]
