@@ -39,7 +39,8 @@ export const RESOURCE_PROFILES: Record<ResourceProfileName, ResourceProfile> = {
 export const RECOMMENDED_MODELS = [
   { name: 'qwen3:4b-instruct', note: 'predefinito: rapido, diretto e ampio margine VRAM' },
   { name: 'qwen3:4b', note: 'variante reasoning per problemi complessi' },
-  { name: 'qwen3:8b', note: 'qualità superiore, vicino al limite GPU' },
+  { name: 'qwen2.5-coder:3b', note: 'specializzato in codice, debugging e moduli sandbox' },
+  { name: 'qwen2.5vl:3b', note: 'comprensione di schermate, immagini e documenti' },
   { name: 'llama3.2:3b', note: 'fallback leggero e affidabile' }
 ] as const;
 

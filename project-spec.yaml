@@ -9,8 +9,21 @@ hardware_profile:
   ram_gib: 48
   gpu: NVIDIA RTX 2060
   vram_gib: 6
-  default_model_class: 7b-q4
+  default_model_class: 3b-4b-q4
   context_tokens: 8192
+local_models:
+  runtime: ollama
+  endpoint: http://127.0.0.1:11434
+  concurrent_gpu_models: 1
+  unload_specialists_after_use: true
+  guardrail_mode: advisory-english-only
+  roles:
+    chat: qwen3:4b-instruct
+    reasoning: qwen3:4b
+    coding: qwen2.5-coder:3b
+    vision: qwen2.5vl:3b
+    embeddings: qwen3-embedding:0.6b
+    guardrail: granite3-guardian:2b
 security:
   default_mode: workspace-write
   approvals: on-request

@@ -25,6 +25,8 @@ pub struct OllamaModel {
     model: String,
     size: u64,
     modified_at: String,
+    #[serde(default)]
+    capabilities: Vec<String>,
     details: Option<Value>,
 }
 
@@ -91,7 +93,7 @@ pub async fn ollama_health() -> bool {
 #[tauri::command]
 pub async fn ollama_list_models() -> Result<Vec<OllamaModel>, String> {
     let models = fetch_models().await?;
-    Ok(models.into_iter().filter(is_strictly_local_model).collect())
+    Ok(models.into_iter().filter(is_allowed_chat_model).collect())
 }
 
 #[tauri::command]
@@ -102,12 +104,14 @@ pub async fn ollama_chat(
 ) -> Result<ChatResult, String> {
     validate_request(&request)?;
     let available = fetch_models().await?;
-    if !available
+    let selected_model = available
         .iter()
-        .any(|model| model.name == request.model && is_strictly_local_model(model))
-    {
-        return Err("Modello non locale o non installato: richiesta bloccata.".to_string());
-    }
+        .find(|model| model.name == request.model && is_allowed_chat_model(model))
+        .ok_or_else(|| "Modello non locale o non installato: richiesta bloccata.".to_string())?;
+    let supports_thinking = selected_model
+        .capabilities
+        .iter()
+        .any(|capability| capability.eq_ignore_ascii_case("thinking"));
 
     let cancellation = Arc::new(AtomicBool::new(false));
     {
@@ -121,7 +125,7 @@ pub async fn ollama_chat(
         active.insert(request.request_id.clone(), Arc::clone(&cancellation));
     }
 
-    let result = stream_chat(&request, on_event, cancellation).await;
+    let result = stream_chat(&request, on_event, cancellation, supports_thinking).await;
     if let Ok(mut active) = state.cancellations.lock() {
         active.remove(&request.request_id);
     }
@@ -162,7 +166,7 @@ async fn fetch_models() -> Result<Vec<OllamaModel>, String> {
         .map_err(|_| "Catalogo modelli Ollama non valido.".to_string())
 }
 
-fn is_strictly_local_model(model: &OllamaModel) -> bool {
+fn is_allowed_chat_model(model: &OllamaModel) -> bool {
     let lower = model.name.to_ascii_lowercase();
     let format_is_local = model
         .details
@@ -172,15 +176,22 @@ fn is_strictly_local_model(model: &OllamaModel) -> bool {
         .is_some_and(|format| format.eq_ignore_ascii_case("gguf"));
     model.size >= 1024 * 1024
         && format_is_local
+        && model
+            .capabilities
+            .iter()
+            .any(|capability| capability.eq_ignore_ascii_case("completion"))
         && !lower.ends_with("-cloud")
         && !lower.ends_with(":cloud")
         && !lower.contains("-cloud:")
+        && !lower.contains("guardian")
+        && !lower.contains("shieldgemma")
 }
 
 async fn stream_chat(
     request: &ChatRequest,
     on_event: Channel<OllamaEvent>,
     cancellation: Arc<AtomicBool>,
+    supports_thinking: bool,
 ) -> Result<ChatResult, String> {
     let (context_tokens, max_output_tokens, temperature, keep_alive) = profile(&request.profile)?;
     let messages = trim_messages(&request.messages, context_tokens, max_output_tokens);
@@ -198,7 +209,7 @@ async fn stream_chat(
             "model": request.model,
             "messages": outbound,
             "stream": true,
-            "think": false,
+            "think": supports_thinking,
             "keep_alive": keep_alive,
             "options": {
                 "num_ctx": context_tokens,
@@ -354,7 +365,7 @@ fn client(timeout: Duration) -> Result<Client, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_strictly_local_model, trim_messages, ChatMessage, OllamaModel};
+    use super::{is_allowed_chat_model, trim_messages, ChatMessage, OllamaModel};
     use serde_json::json;
 
     fn model(name: &str, size: u64, format: &str) -> OllamaModel {
@@ -363,23 +374,31 @@ mod tests {
             model: name.to_string(),
             size,
             modified_at: "now".to_string(),
+            capabilities: vec!["completion".to_string()],
             details: Some(json!({ "format": format })),
         }
     }
 
     #[test]
     fn blocks_cloud_and_non_gguf_models() {
-        assert!(is_strictly_local_model(&model(
-            "qwen3:4b", 2_000_000, "gguf"
-        )));
-        assert!(!is_strictly_local_model(&model(
+        assert!(is_allowed_chat_model(&model("qwen3:4b", 2_000_000, "gguf")));
+        assert!(!is_allowed_chat_model(&model(
             "gpt-oss:120b-cloud",
             2_000_000,
             "gguf"
         )));
-        assert!(!is_strictly_local_model(&model("remote", 0, "gguf")));
-        assert!(!is_strictly_local_model(&model(
+        assert!(!is_allowed_chat_model(&model("remote", 0, "gguf")));
+        assert!(!is_allowed_chat_model(&model(
             "unknown", 2_000_000, "remote"
+        )));
+
+        let mut embedding = model("qwen3-embedding:0.6b", 639_000_000, "gguf");
+        embedding.capabilities = vec!["embedding".to_string()];
+        assert!(!is_allowed_chat_model(&embedding));
+        assert!(!is_allowed_chat_model(&model(
+            "granite3-guardian:2b",
+            2_700_000_000,
+            "gguf"
         )));
     }
 

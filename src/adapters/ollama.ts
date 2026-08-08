@@ -15,7 +15,9 @@ export interface OllamaModel {
   model: string;
   size: number;
   modified_at: string;
+  capabilities?: string[];
   details?: {
+    format?: string;
     family?: string;
     parameter_size?: string;
     quantization_level?: string;
@@ -56,6 +58,18 @@ export function parseNdjsonBuffer(buffer: string): { values: ChatChunk[]; remain
   return { values, remainder };
 }
 
+export function isChatCapableLocalModel(model: OllamaModel): boolean {
+  const lower = model.name.toLowerCase();
+  return model.size >= 1024 * 1024
+    && model.details?.format?.toLowerCase() === 'gguf'
+    && (model.capabilities ?? []).some(capability => capability.toLowerCase() === 'completion')
+    && !lower.endsWith('-cloud')
+    && !lower.endsWith(':cloud')
+    && !lower.includes('-cloud:')
+    && !lower.includes('guardian')
+    && !lower.includes('shieldgemma');
+}
+
 export function trimMessagesForContext(messages: ChatMessage[], profile: ResourceProfile): ChatMessage[] {
   const reservedTokens = profile.maxOutputTokens + 512;
   const characterBudget = Math.max(1024, (profile.contextTokens - reservedTokens) * 4);
@@ -76,6 +90,8 @@ export function trimMessagesForContext(messages: ChatMessage[], profile: Resourc
 }
 
 export class OllamaClient {
+  private readonly thinkingModels = new Set<string>();
+
   constructor(private readonly baseUrl = DEFAULT_BASE_URL) {}
 
   async health(signal?: AbortSignal): Promise<boolean> {
@@ -93,7 +109,14 @@ export class OllamaClient {
     const response = await fetch(`${this.baseUrl}/api/tags`, { signal });
     if (!response.ok) throw new Error(`Ollama non disponibile (${response.status})`);
     const payload = await response.json() as TagsResponse;
-    return Array.isArray(payload.models) ? payload.models : [];
+    const models = Array.isArray(payload.models) ? payload.models.filter(isChatCapableLocalModel) : [];
+    this.thinkingModels.clear();
+    for (const model of models) {
+      if ((model.capabilities ?? []).some(capability => capability.toLowerCase() === 'thinking')) {
+        this.thinkingModels.add(model.name);
+      }
+    }
+    return models;
   }
 
   async chat(
@@ -169,7 +192,7 @@ export class OllamaClient {
             .map(({ role, content }) => ({ role, content }))
         ],
         stream: true,
-        think: false,
+        think: this.thinkingModels.has(model),
         keep_alive: profile.keepAlive,
         options: {
           num_ctx: profile.contextTokens,

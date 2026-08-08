@@ -16,7 +16,11 @@ Assistente desktop Windows local-first per chat privata, voce, strumenti PC cont
 - Rust stable MSVC e Visual Studio 2022 Build Tools;
 - Ollama locale;
 - `qwen3:4b-instruct` come modello consigliato;
-- `qwen3:4b` come variante reasoning opzionale.
+- `qwen3:4b` come variante reasoning;
+- `qwen2.5-coder:3b` per coding e manutenzione dei moduli;
+- `qwen2.5vl:3b` per immagini, schermate e documenti;
+- `qwen3-embedding:0.6b` per memoria semantica e RAG;
+- `granite3-guardian:2b` per classificazione locale dei rischi;
 - `whisper.cpp` 1.9.2 con modello multilingue `base` per la dettatura locale.
 
 ## Sviluppo
@@ -28,8 +32,9 @@ pnpm test
 pnpm build
 pnpm build:windows:debug
 ./scripts/setup-whisper.ps1
+./scripts/setup-ollama-models.ps1
 ```
 
 Il backend Rust usa esclusivamente Ollama su `127.0.0.1:11434` e rifiuta modelli cloud, remoti o non GGUF. In Tauri, la cronologia è cifrata in `aura.db`; la chiave principale è custodita dal Windows Credential Manager. La voce viene convertita in WAV PCM locale e trascritta da `whisper.cpp`; la trascrizione resta una bozza finché l'utente non la invia. L'anteprima web usa esclusivamente un fallback locale.
 
-Documentazione: `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, `docs/HARDENING.md`, `docs/VOICE.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.
+Documentazione: `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, `docs/HARDENING.md`, `docs/MODELS.md`, `docs/VOICE.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.

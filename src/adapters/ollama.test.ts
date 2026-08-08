@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseNdjsonBuffer, trimMessagesForContext, type ChatMessage } from './ollama';
+import { isChatCapableLocalModel, parseNdjsonBuffer, trimMessagesForContext, type ChatMessage } from './ollama';
 import { RESOURCE_PROFILES } from '../core/modelProfiles';
 
 describe('Ollama NDJSON parser', () => {
@@ -25,5 +25,21 @@ describe('Ollama NDJSON parser', () => {
     const selected = trimMessagesForContext(messages, RESOURCE_PROFILES.Leggero);
     expect(selected.at(-1)?.id).toBe('19');
     expect(selected.length).toBeLessThan(messages.length);
+  });
+});
+
+describe('Ollama model filtering', () => {
+  it('keeps local completion models and hides embedding or cloud models', () => {
+    const base = {
+      model: 'model',
+      size: 2_000_000,
+      modified_at: 'now',
+      details: { format: 'gguf' }
+    };
+
+    expect(isChatCapableLocalModel({ ...base, name: 'qwen3:4b', capabilities: ['completion', 'tools'] })).toBe(true);
+    expect(isChatCapableLocalModel({ ...base, name: 'qwen3-embedding:0.6b', capabilities: ['embedding'] })).toBe(false);
+    expect(isChatCapableLocalModel({ ...base, name: 'gpt-oss:cloud', capabilities: ['completion'] })).toBe(false);
+    expect(isChatCapableLocalModel({ ...base, name: 'granite3-guardian:2b', capabilities: ['completion'] })).toBe(false);
   });
 });
