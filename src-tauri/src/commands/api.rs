@@ -1,6 +1,6 @@
 use super::{
     audit::append_audit,
-    browser::validate_public_https,
+    browser::{resolve_public_https, validate_public_https},
     pc::confirm_native_action,
     policy::enforce_capability,
     storage::{redact_db, AppState},
@@ -170,7 +170,7 @@ pub async fn api_call(
     if target.origin() != base.origin() {
         return Err("Il percorso API non può cambiare host.".to_string());
     }
-    validate_public_https(target.as_str())?;
+    let (target, target_host, target_addresses) = resolve_public_https(target.as_str())?;
     if !confirm_native_action(
         "Conferma chiamata API",
         &format!(
@@ -191,6 +191,7 @@ pub async fn api_call(
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(30))
         .redirect(Policy::none())
+        .resolve_to_addrs(&target_host, &target_addresses)
         .build()
         .map_err(|_| "Client API non disponibile.".to_string())?;
     let mut request = client

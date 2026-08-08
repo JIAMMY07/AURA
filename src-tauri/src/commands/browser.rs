@@ -4,7 +4,7 @@ use super::{
 use reqwest::{redirect::Policy, Url};
 use serde::Serialize;
 use std::{
-    net::{IpAddr, ToSocketAddrs},
+    net::{IpAddr, SocketAddr, ToSocketAddrs},
     time::Duration,
 };
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -111,16 +111,17 @@ pub fn browser_navigate(
 #[tauri::command]
 pub async fn browser_fetch(url: String, state: State<'_, AppState>) -> Result<BrowserPage, String> {
     enforce_capability("browser.inspect", "allow")?;
-    let url = validate_public_https(&url)?;
+    let (url, host, addresses) = resolve_public_https(&url)?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(20))
         .redirect(Policy::none())
+        .resolve_to_addrs(&host, &addresses)
         .build()
         .map_err(|_| "Client browser non disponibile.".to_string())?;
     let response = client
         .get(url.clone())
-        .header("User-Agent", "AURA-Local/0.7")
+        .header("User-Agent", "AURA-Local/0.8")
         .send()
         .await
         .map_err(|_| "Pagina non raggiungibile.".to_string())?;
@@ -188,6 +189,10 @@ pub fn browser_close(app: AppHandle) -> Result<bool, String> {
 }
 
 pub(crate) fn validate_public_https(value: &str) -> Result<Url, String> {
+    resolve_public_https(value).map(|(url, _, _)| url)
+}
+
+pub(crate) fn resolve_public_https(value: &str) -> Result<(Url, String, Vec<SocketAddr>), String> {
     if value.len() > 2048 {
         return Err("URL troppo lungo.".to_string());
     }
@@ -197,7 +202,10 @@ pub(crate) fn validate_public_https(value: &str) -> Result<Url, String> {
             "Sono consentiti soltanto URL HTTPS senza credenziali incorporate.".to_string(),
         );
     }
-    let host = url.host_str().ok_or_else(|| "Host assente.".to_string())?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| "Host assente.".to_string())?
+        .to_string();
     if matches!(
         host.to_ascii_lowercase().as_str(),
         "localhost" | "localhost.localdomain"
@@ -205,22 +213,21 @@ pub(crate) fn validate_public_https(value: &str) -> Result<Url, String> {
         return Err("Accesso alla rete locale bloccato.".to_string());
     }
     let port = url.port_or_known_default().unwrap_or(443);
-    let addresses = (host, port)
+    let addresses = (host.as_str(), port)
         .to_socket_addrs()
-        .map_err(|_| "DNS non risolvibile.".to_string())?;
-    let mut found = false;
-    for address in addresses {
-        found = true;
+        .map_err(|_| "DNS non risolvibile.".to_string())?
+        .collect::<Vec<_>>();
+    for address in &addresses {
         if !public_ip(address.ip()) {
             return Err(
                 "SSRF bloccato: destinazione privata, locale o non instradabile.".to_string(),
             );
         }
     }
-    if !found {
+    if addresses.is_empty() {
         return Err("Host senza indirizzi verificabili.".to_string());
     }
-    Ok(url)
+    Ok((url, host, addresses))
 }
 
 fn public_ip(ip: IpAddr) -> bool {

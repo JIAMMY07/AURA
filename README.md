@@ -1,6 +1,6 @@
-# AURA 0.7.0 — Local AI Assistant
+# AURA 0.8.0 — Local AI Assistant
 
-Assistente desktop Windows local-first per chat privata, voce, strumenti PC controllati, ricerca web isolata e crescita tramite moduli verificati in sandbox. La release 0.7.0 integra inoltre creazione 3D TripoSR/Blender, browser controllato con presa manuale, connettori API REST cifrati e RAG documentale locale con citazioni.
+Assistente desktop Windows local-first per chat privata, voce, strumenti PC controllati, ricerca web isolata e crescita tramite moduli verificati in sandbox. La release 0.8.0 aggiunge il contratto sicuro per il futuro plugin Alexa, pairing e revoca locali, protezione HMAC/anti-replay, DNS pinning per browser e API, oltre a RAG cifrato per PDF e DOCX con deduplicazione.
 
 ## Stato
 
@@ -16,6 +16,9 @@ Assistente desktop Windows local-first per chat privata, voce, strumenti PC cont
 - Policy 0.6: capability backend applicate direttamente a chat, voce, profilo, archivio, strumenti PC ed Evolution Lab; deny-by-default.
 - Personalizzazione: profilo e correzioni esplicite cifrati, deduplicati e limitati, usati soltanto dal modello Ollama locale.
 - Guardrail: Granite Guardian è esposto come segnale consultivo; le policy Rust restano l'unica autorità perché il benchmark locale ha rilevato falsi positivi.
+- Alexa: protocollo locale e interfaccia di pairing pronti; plugin Alexa, relay HTTPS e trasporto polling saranno realizzati e collaudati in una fase successiva.
+- RAG: PDF, DOCX, testo, dati e codice sorgente; estrazione limitata, embeddings locali, contenuti cifrati e citazioni per frammento.
+- Rete: browser automatico e connettori API vincolano le connessioni agli indirizzi IP pubblici già verificati per ridurre il rischio DNS rebinding/SSRF.
 
 ## Installazione già configurata sul PC
 
@@ -44,6 +47,6 @@ pnpm build:windows:debug
 
 Il backend Rust usa esclusivamente Ollama su `127.0.0.1:11434` e rifiuta modelli cloud, remoti o non GGUF. In Tauri, la cronologia è cifrata in `aura.db`; la chiave principale è custodita dal Windows Credential Manager. La voce viene convertita in WAV PCM locale e trascritta da `whisper.cpp`; la trascrizione resta una bozza finché l'utente non la invia. L'anteprima web usa esclusivamente un fallback locale.
 
-Documentazione: `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, `docs/HARDENING.md`, `docs/MODELS.md`, `docs/VOICE.md`, `docs/PC-CONTROL.md`, `docs/AI-3D.md`, `docs/EVOLUTION-LAB.md`, `docs/PERSONALIZATION.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.
+Documentazione: `docs/ARCHITECTURE.md`, `docs/ALEXA-INTEGRATION.md`, `docs/BACKLOG.md`, `docs/HARDENING.md`, `docs/MODELS.md`, `docs/VOICE.md`, `docs/PC-CONTROL.md`, `docs/AI-3D.md`, `docs/EVOLUTION-LAB.md`, `docs/PERSONALIZATION.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.
 
 Rapporti: `docs/TEST-REPORT-0.6.0-2026-08-08.md`, `docs/TEST-REPORT-2026-08-08.md`, `docs/OPTIMIZATION-0.5.0.md` e `docs/HARDENING-REMEDIATION-2026-08-08.md`.

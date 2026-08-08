@@ -71,6 +71,7 @@ pub(crate) fn evaluate_capability(capability: &str) -> PolicyDecision {
         | "rag.read"
         | "3d.inspect"
         | "security.inspect"
+        | "remote.inspect"
         | "evolution.inspect"
         | "conversation.read"
         | "conversation.write"
@@ -105,6 +106,16 @@ pub(crate) fn evaluate_capability(capability: &str) -> PolicyDecision {
             decision: "confirm",
             risk: "moderate",
             reason: "Azione difensiva Windows avviata soltanto dopo conferma esplicita.",
+        },
+        "remote.pair" | "remote.unpair" => PolicyDecision {
+            decision: "confirm",
+            risk: "moderate",
+            reason: "Associazione o revoca remota consentita soltanto dopo conferma locale.",
+        },
+        "remote.command" => PolicyDecision {
+            decision: "confirm",
+            risk: "moderate",
+            reason: "Un comando remoto firmato non sostituisce la policy dell'azione richiesta.",
         },
         "evolution.propose" => PolicyDecision {
             decision: "sandbox",

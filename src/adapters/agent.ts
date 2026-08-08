@@ -90,6 +90,8 @@ export interface RagDocument { id: string; sourceName: string; chunkCount: numbe
 export interface RagHit { documentId: string; sourceName: string; ordinal: number; score: number; excerpt: string; citation: string }
 export interface SecurityCheck { id: string; label: string; status: 'healthy'|'warning'|'unavailable'; detail: string }
 export interface SecurityCenterStatus { moduleComplete: boolean; postureScore: number; checks: SecurityCheck[]; executableSha256: string; publicSignature: boolean; localSignature: boolean }
+export interface RemoteStatus { paired: boolean; enabled: boolean; deviceName: string; relayHost: string; transport: string; inboundPort: boolean; allowedCommands: string[] }
+export interface PairingResult { paired: boolean; pairingSecret: string; deviceName: string; relayHost: string; warning: string }
 
 export type AllowedApplication =
   | 'calculator' | 'notepad' | 'explorer' | 'task-manager' | 'paint' | 'snipping-tool'
@@ -215,3 +217,6 @@ export async function deleteRagDocument(id: string): Promise<boolean> { requireD
 export async function getSecurityCenterStatus(): Promise<SecurityCenterStatus> { requireDesktop(); return invoke('security_center_status'); }
 export async function runDefenderQuickScan(): Promise<boolean> { requireDesktop(); return invoke('security_quick_scan'); }
 export async function updateDefenderDefinitions(): Promise<boolean> { requireDesktop(); return invoke('security_update_definitions'); }
+export async function getRemoteStatus(): Promise<RemoteStatus> { requireDesktop(); return invoke('remote_status'); }
+export async function pairRemote(deviceName: string, relayUrl: string): Promise<PairingResult> { requireDesktop(); return invoke('remote_pair', { deviceName, relayUrl }); }
+export async function unpairRemote(): Promise<boolean> { requireDesktop(); return invoke('remote_unpair'); }

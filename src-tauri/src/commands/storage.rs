@@ -271,6 +271,28 @@ pub(crate) fn harden_schema(db: &Connection) -> rusqlite::Result<()> {
          );
          CREATE INDEX IF NOT EXISTS idx_rag_chunks_document ON rag_chunks(document_id, ordinal);",
     )?;
+    add_column_if_missing(db, "rag_documents", "content_sha256", "TEXT")?;
+    db.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_rag_documents_content_sha256
+         ON rag_documents(content_sha256) WHERE content_sha256 IS NOT NULL;",
+    )?;
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS remote_pairing (
+            id TEXT PRIMARY KEY CHECK(id='default'),
+            device_name TEXT NOT NULL,
+            relay_url TEXT NOT NULL,
+            secret_cipher BLOB NOT NULL,
+            secret_nonce BLOB NOT NULL,
+            enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+            created_at TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS remote_nonces (
+            nonce TEXT PRIMARY KEY,
+            command_id TEXT NOT NULL,
+            seen_at INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_remote_nonces_seen ON remote_nonces(seen_at);",
+    )?;
     Ok(())
 }
 

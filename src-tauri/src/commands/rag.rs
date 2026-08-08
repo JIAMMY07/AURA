@@ -4,15 +4,19 @@ use super::{
     policy::enforce_capability,
     storage::{redact_db, AppState},
 };
+use quick_xml::{events::Event, Reader};
 use reqwest::redirect::Policy;
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, fs, path::Path, time::Duration};
+use sha2::{Digest, Sha256};
+use std::{cmp::Ordering, fs, io::Read, path::Path, time::Duration};
 use tauri::State;
 use uuid::Uuid;
 
 const EMBEDDING_MODEL: &str = "qwen3-embedding:0.6b";
-const MAX_DOCUMENT_BYTES: u64 = 128 * 1024;
+const MAX_TEXT_DOCUMENT_BYTES: u64 = 512 * 1024;
+const MAX_BINARY_DOCUMENT_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_EXTRACTED_TEXT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_CHUNKS: usize = 96;
 
 #[derive(Serialize)]
@@ -80,8 +84,8 @@ pub async fn rag_import_document(
     enforce_capability("rag.import", "confirm")?;
     let source = Path::new(&path);
     let metadata = fs::metadata(source).map_err(|_| "Documento non trovato.".to_string())?;
-    if !metadata.is_file() || metadata.len() > MAX_DOCUMENT_BYTES {
-        return Err("Documento assente o oltre 128 KiB.".to_string());
+    if !metadata.is_file() {
+        return Err("Documento assente o non leggibile.".to_string());
     }
     let extension = source
         .extension()
@@ -103,10 +107,25 @@ pub async fn rag_import_document(
             | "toml"
             | "yaml"
             | "yml"
+            | "pdf"
+            | "docx"
     ) {
         return Err(
-            "Formato RAG non supportato: usa testo, Markdown, dati o codice sorgente.".to_string(),
+            "Formato RAG non supportato: usa PDF, DOCX, testo, Markdown, dati o codice sorgente."
+                .to_string(),
         );
+    }
+    let binary = matches!(extension.as_str(), "pdf" | "docx");
+    let size_limit = if binary {
+        MAX_BINARY_DOCUMENT_BYTES
+    } else {
+        MAX_TEXT_DOCUMENT_BYTES
+    };
+    if metadata.len() > size_limit {
+        return Err(format!(
+            "Documento oltre il limite di {} MiB.",
+            size_limit / 1024 / 1024
+        ));
     }
     let name = source
         .file_name()
@@ -123,8 +142,25 @@ pub async fn rag_import_document(
     ) {
         return Err("Importazione RAG annullata.".to_string());
     }
-    let content =
-        fs::read_to_string(source).map_err(|_| "Documento non UTF-8 leggibile.".to_string())?;
+    let content = extract_document_text(source, &extension)?;
+    let content_sha256 = hex::encode(Sha256::digest(content.as_bytes()));
+    {
+        let db = state
+            .database
+            .lock()
+            .map_err(|_| "Database occupato.".to_string())?;
+        let duplicate = db
+            .query_row(
+                "SELECT source_name FROM rag_documents WHERE content_sha256=?1",
+                [&content_sha256],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(redact_db)?;
+        if let Some(existing) = duplicate {
+            return Err(format!("Documento già indicizzato come '{existing}'."));
+        }
+    }
     let chunks = chunk_text(&content);
     if chunks.is_empty() {
         return Err("Documento senza testo indicizzabile.".to_string());
@@ -143,7 +179,7 @@ pub async fn rag_import_document(
         .lock()
         .map_err(|_| "Database occupato.".to_string())?;
     let tx = db.transaction().map_err(redact_db)?;
-    tx.execute("INSERT INTO rag_documents(id,source_name,source_cipher,source_nonce,chunk_count,created_at) VALUES(?1,?2,?3,?4,?5,datetime('now'))",params![id,name,source_cipher,source_nonce,chunks.len() as i64]).map_err(redact_db)?;
+    tx.execute("INSERT INTO rag_documents(id,source_name,source_cipher,source_nonce,chunk_count,created_at,content_sha256) VALUES(?1,?2,?3,?4,?5,datetime('now'),?6)",params![id,name,source_cipher,source_nonce,chunks.len() as i64,content_sha256]).map_err(redact_db)?;
     for (ordinal, (text, embedding)) in chunks.iter().zip(embeddings.iter()).enumerate() {
         let chunk_id = Uuid::new_v4().to_string();
         let aad = format!("rag-chunk-v1|{id}|{ordinal}");
@@ -169,6 +205,83 @@ pub async fn rag_import_document(
         chunk_count: chunks.len(),
         model: EMBEDDING_MODEL,
     })
+}
+
+fn extract_document_text(path: &Path, extension: &str) -> Result<String, String> {
+    let content = match extension {
+        "pdf" => pdf_extract::extract_text(path)
+            .map_err(|_| "PDF non leggibile o senza testo estraibile.".to_string())?,
+        "docx" => extract_docx(path)?,
+        _ => fs::read_to_string(path)
+            .map_err(|_| "Documento testuale non UTF-8 leggibile.".to_string())?,
+    };
+    if content.len() > MAX_EXTRACTED_TEXT_BYTES {
+        return Err("Testo estratto oltre il limite di 2 MiB.".to_string());
+    }
+    Ok(content)
+}
+
+fn extract_docx(path: &Path) -> Result<String, String> {
+    let file = fs::File::open(path).map_err(|_| "DOCX non leggibile.".to_string())?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|_| "Archivio DOCX non valido.".to_string())?;
+    let document = archive
+        .by_name("word/document.xml")
+        .map_err(|_| "DOCX privo del documento principale.".to_string())?;
+    if document.size() > MAX_EXTRACTED_TEXT_BYTES as u64 {
+        return Err("XML DOCX oltre il limite di 2 MiB.".to_string());
+    }
+    let mut xml = Vec::new();
+    document
+        .take(MAX_EXTRACTED_TEXT_BYTES as u64 + 1)
+        .read_to_end(&mut xml)
+        .map_err(|_| "Lettura DOCX fallita.".to_string())?;
+    if xml.len() > MAX_EXTRACTED_TEXT_BYTES {
+        return Err("DOCX espanso oltre il limite consentito.".to_string());
+    }
+    let mut reader = Reader::from_reader(xml.as_slice());
+    reader.config_mut().trim_text(false);
+    let mut output = String::new();
+    loop {
+        match reader.read_event() {
+            Ok(Event::Text(text)) => {
+                let decoded = text
+                    .decode()
+                    .map_err(|_| "Testo DOCX non valido.".to_string())?;
+                output.push_str(&decoded);
+            }
+            Ok(Event::GeneralRef(reference)) => {
+                if let Some(character) = reference
+                    .resolve_char_ref()
+                    .map_err(|_| "Riferimento carattere DOCX non valido.".to_string())?
+                {
+                    output.push(character);
+                } else {
+                    let name = reference
+                        .decode()
+                        .map_err(|_| "Entità DOCX non valida.".to_string())?;
+                    output.push(match name.as_ref() {
+                        "amp" => '&',
+                        "lt" => '<',
+                        "gt" => '>',
+                        "quot" => '"',
+                        "apos" => '\'',
+                        _ => return Err("Entità DOCX non supportata.".to_string()),
+                    });
+                }
+            }
+            Ok(Event::End(end)) if end.name().as_ref() == b"w:p" => output.push('\n'),
+            Ok(Event::Empty(empty))
+                if matches!(empty.name().as_ref(), b"w:tab" | b"w:br" | b"w:cr") =>
+            {
+                output.push(' ')
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => return Err("XML DOCX malformato.".to_string()),
+            _ => {}
+        }
+    }
+    Ok(output)
 }
 
 #[tauri::command]
@@ -338,7 +451,8 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{chunk_text, cosine, MAX_CHUNKS};
+    use super::{chunk_text, cosine, extract_docx, MAX_CHUNKS};
+    use std::io::Write;
     #[test]
     fn chunks_with_bounds_and_overlap() {
         let c = chunk_text(&"x".repeat(200_000));
@@ -348,5 +462,22 @@ mod tests {
     #[test]
     fn cosine_orders_vectors() {
         assert!(cosine(&[1.0, 0.0], &[1.0, 0.0]) > cosine(&[1.0, 0.0], &[0.0, 1.0]));
+    }
+    #[test]
+    fn extracts_bounded_docx_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.docx");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file(
+            "word/document.xml",
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated),
+        )
+        .unwrap();
+        zip.write_all(br#"<w:document xmlns:w="x"><w:body><w:p><w:r><w:t>Ciao &amp; AURA</w:t></w:r></w:p></w:body></w:document>"#).unwrap();
+        zip.finish().unwrap();
+        let text = extract_docx(&path).unwrap();
+        assert!(text.contains("Ciao & AURA"), "extracted: {text:?}");
     }
 }

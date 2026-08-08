@@ -18,6 +18,7 @@ import {
   promoteEvolutionPatch, recordEvolutionProposal, recordFeedback, runDefenderQuickScan, runEvolutionSandbox, saveApiConnector, saveProfile, searchRag, terminateProcess, updateDefenderDefinitions, getSecurityCenterStatus, type ApiConnector, type BrowserPage, type BrowserStatus, type Creation3dResult, type Creation3dStatus, type EvolutionReportView, type GuardrailStatus, type PersonalProfile, type RagDocument, type RagHit, type SandboxStatus, type SecurityCenterStatus
 } from './adapters/agent';
 import { parseLocalCommand, type LocalCommand } from './core/localCommands';
+import { RemoteAccessPanel } from './features/remote/RemoteAccessPanel';
 
 const client = new OllamaClient();
 const conversationStore = createConversationStore();
@@ -760,6 +761,8 @@ export function App() {
         </div>
       </details>
 
+      <RemoteAccessPanel />
+
       <details className="personalization">
         <summary><UserRound /> Profilo personale e adattamento</summary>
         <p className="section-help">Dati cifrati sul PC e inviati soltanto al modello Ollama locale. Non inserire password, token, documenti d’identità o dati bancari.</p>
@@ -869,9 +872,9 @@ export function App() {
 
       <details className="personalization">
         <summary><BookOpen /> RAG documentale locale</summary>
-        <p className="section-help">Indicizzazione semantica con qwen3-embedding locale. Testo, percorso ed embeddings sono cifrati; i risultati includono citazioni al documento e frammento.</p>
+        <p className="section-help">Indicizzazione semantica locale di PDF, DOCX, testo, dati e codice con qwen3-embedding. Percorso, testo ed embeddings sono cifrati; duplicati e file fuori limite vengono rifiutati.</p>
         <div className="evolution-config">
-          <label>Percorso documento<input value={ragPath} onChange={event => setRagPath(event.target.value)} placeholder="C:\documenti\note.md" /></label>
+          <label>Percorso documento<input value={ragPath} onChange={event => setRagPath(event.target.value)} placeholder="C:\documenti\manuale.pdf" /></label>
           <button type="button" disabled={labBusy || !ragPath.trim()} onClick={() => void indexRagDocument()}>Importa e indicizza</button>
         </div>
         {ragDocuments.length > 0 && <div className="evolution-history">{ragDocuments.map(document => <article key={document.id}><span>{document.sourceName} · {document.chunkCount} frammenti</span><button type="button" className="danger" disabled={labBusy} onClick={() => void runLab(async () => { await deleteRagDocument(document.id); setRagDocuments(await listRagDocuments()); })}>Elimina</button></article>)}</div>}

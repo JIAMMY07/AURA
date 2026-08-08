@@ -1,6 +1,6 @@
 [package]
 name = "local-ai-assistant"
-version = "0.7.0"
+version = "0.8.0"
 description = "Local-first AI assistant for Windows"
 edition = "2021"
 
@@ -19,6 +19,8 @@ hmac = "0.12"
 keyring = { version = "3", default-features = false, features = ["windows-native"] }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
+pdf-extract = "0.12"
+quick-xml = "0.41"
 rusqlite = { version = "0.32", features = ["bundled"] }
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
@@ -26,6 +28,7 @@ wait-timeout = "0.2"
 sysinfo = "0.39"
 windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_System_Shutdown"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
+zip = { version = "6", default-features = false, features = ["deflate"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
