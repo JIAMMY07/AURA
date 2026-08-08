@@ -5,6 +5,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
+    process::Child,
     sync::{atomic::AtomicBool, Arc, Mutex},
 };
 use tauri::State;
@@ -19,6 +20,7 @@ pub struct AppState {
     pub(crate) cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub(crate) generation_busy: Arc<AtomicBool>,
     pub(crate) voice_busy: Arc<AtomicBool>,
+    pub(crate) tts_process: Mutex<Option<Child>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -53,6 +55,7 @@ impl AppState {
             cancellations: Mutex::new(HashMap::new()),
             generation_busy: Arc::new(AtomicBool::new(false)),
             voice_busy: Arc::new(AtomicBool::new(false)),
+            tts_process: Mutex::new(None),
         })
     }
 }
@@ -237,6 +240,36 @@ pub(crate) fn harden_schema(db: &Connection) -> rusqlite::Result<()> {
             created_at TEXT NOT NULL
          );
          CREATE INDEX IF NOT EXISTS idx_agent_feedback_created ON agent_feedback(created_at DESC);",
+    )?;
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS api_connectors (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            base_url TEXT NOT NULL,
+            auth_kind TEXT NOT NULL,
+            auth_header TEXT NOT NULL,
+            secret_cipher BLOB NOT NULL,
+            secret_nonce BLOB NOT NULL,
+            created_at TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS rag_documents (
+            id TEXT PRIMARY KEY,
+            source_name TEXT NOT NULL,
+            source_cipher BLOB NOT NULL,
+            source_nonce BLOB NOT NULL,
+            chunk_count INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS rag_chunks (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL REFERENCES rag_documents(id) ON DELETE CASCADE,
+            ordinal INTEGER NOT NULL,
+            content_cipher BLOB NOT NULL,
+            content_nonce BLOB NOT NULL,
+            embedding_cipher BLOB NOT NULL,
+            embedding_nonce BLOB NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_rag_chunks_document ON rag_chunks(document_id, ordinal);",
     )?;
     Ok(())
 }

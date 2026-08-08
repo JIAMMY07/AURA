@@ -48,7 +48,7 @@ Encrypted local storage
 - **Browser Runner:** profilo separato per ricerche automatiche; allowlist/denylist, download in quarantena, takeover manuale e modalità accesso esteso esplicita e temporanea.
 - **Connector Host:** REST/OpenAPI, GraphQL, OAuth 2.1/OIDC, webhook, gRPC e MCP tramite manifest e scope minimi.
 - **Evolution Lab:** genera una proposta di plugin, esegue analisi e test in sandbox/VM con dati fittizi, produce diff e report; la promozione richiede firma e consenso.
-- **Security Center:** postura Defender/Firewall/BitLocker, aggiornamenti, eventi e vulnerabilità note; solo difesa, nessun exploit o estrazione di credenziali.
+- **Security Center:** modulo Tauri/UI con postura Defender, firme, scansioni, Firewall, UAC, Secure Boot, BitLocker, Windows Update, hash/firma dell'eseguibile e audit; solo difesa, nessun exploit, modifica delle esclusioni o estrazione di credenziali.
 - **Storage:** SQLite per stato e audit; indice vettoriale opzionale; Windows Credential Manager + DPAPI per segreti; cifratura applicativa autenticata.
 
 ## Flusso di una richiesta
@@ -89,7 +89,7 @@ Ogni estensione è un pacchetto versionato con manifest, permessi, hash, origine
 
 ## Profilo hardware
 
-Target: Ryzen 7 5700X, 48 GiB RAM, RTX 2060 6 GiB VRAM, Windows 11. Profilo predefinito: modello 7B/8B Q4, contesto 8k, un solo carico GPU pesante. Whisper usa un modello small/base ottimizzato; Piper resta CPU-friendly. I job non interattivi vengono sospesi oltre le soglie configurate e il modello effettua fallback su CPU o modello più piccolo.
+Target: Ryzen 7 5700X, 48 GiB RAM, RTX 2060 6 GiB VRAM, Windows 11. Profilo predefinito: modello 3B/4B Q4, contesto chat 8k e un solo carico GPU pesante. Il coder Evolution usa 4k per evitare reload/stalli del runner; Whisper usa il modello base e il TTS usa Windows SAPI. I job non interattivi hanno deadline e il modello effettua fallback su un profilo più leggero.
 
 ## Affidabilità e osservabilità
 

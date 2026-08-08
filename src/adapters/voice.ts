@@ -6,6 +6,8 @@ export interface VoiceStatus {
   model: string;
   vad: boolean;
   maxSeconds: number;
+  ttsAvailable: boolean;
+  ttsEngine: string;
 }
 
 export interface VoiceTranscript {
@@ -40,8 +42,18 @@ export interface VoiceRecording {
 }
 
 export async function getVoiceStatus(): Promise<VoiceStatus> {
-  if (!isTauri()) return { available: false, engine: 'whisper.cpp', model: 'base multilingual', vad: false, maxSeconds: 30 };
+  if (!isTauri()) return { available: false, engine: 'whisper.cpp', model: 'base multilingual', vad: false, maxSeconds: 30, ttsAvailable: false, ttsEngine: 'Windows SAPI' };
   return invoke<VoiceStatus>('voice_status');
+}
+
+export async function speakText(text: string): Promise<void> {
+  if (!isTauri()) throw new Error('Sintesi vocale disponibile solo nell\u2019app desktop.');
+  await invoke('voice_speak', { text });
+}
+
+export async function stopSpeaking(): Promise<boolean> {
+  if (!isTauri()) return false;
+  return invoke<boolean>('voice_stop_speaking');
 }
 
 export async function transcribeVoice(wav: Uint8Array): Promise<VoiceTranscript> {

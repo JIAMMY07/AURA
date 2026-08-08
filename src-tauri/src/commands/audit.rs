@@ -272,6 +272,7 @@ mod tests {
             cancellations: Mutex::new(HashMap::new()),
             generation_busy: Arc::new(AtomicBool::new(false)),
             voice_busy: Arc::new(AtomicBool::new(false)),
+            tts_process: Mutex::new(None),
         }
     }
 
@@ -321,6 +322,7 @@ mod tests {
             cancellations: Mutex::new(HashMap::new()),
             generation_busy: Arc::new(AtomicBool::new(false)),
             voice_busy: Arc::new(AtomicBool::new(false)),
+            tts_process: Mutex::new(None),
         };
         assert!(verify_audit(&state).expect("verify").valid);
     }

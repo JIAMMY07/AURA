@@ -1,6 +1,6 @@
 [package]
 name = "local-ai-assistant"
-version = "0.5.0"
+version = "0.7.0"
 description = "Local-first AI assistant for Windows"
 edition = "2021"
 
@@ -24,7 +24,7 @@ sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 wait-timeout = "0.2"
 sysinfo = "0.39"
-windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_System_Shutdown"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [features]

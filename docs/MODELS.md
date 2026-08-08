@@ -2,7 +2,7 @@
 
 ## Profilo installato
 
-La suite è dimensionata per AMD Ryzen 7 5700X, 48 GiB di RAM e NVIDIA RTX 2060 con 6 GiB di VRAM. I modelli da 3B-4B quantizzati sono il punto operativo consigliato: mantengono una buona accelerazione GPU senza affidarsi stabilmente all'offload su RAM.
+La suite è dimensionata per AMD Ryzen 7 5700X, 48 GiB di RAM e NVIDIA RTX 2060 con 6 GiB di VRAM. I modelli da 3B-4B quantizzati sono il punto operativo consigliato. Su questo PC Ollama 0.32.6 ha mostrato un blocco riproducibile durante l'offload CUDA di Qwen; il backend AURA forza quindi l'inferenza CPU (`num_gpu: 0`) per chat e Guardian. È meno veloce del percorso GPU ideale, ma nei canary reali evita timeout di 180 secondi e mantiene tutto locale.
 
 | Ruolo | Modello | Dimensione indicativa | Uso previsto |
 | --- | --- | ---: | --- |
@@ -13,19 +13,20 @@ La suite è dimensionata per AMD Ryzen 7 5700X, 48 GiB di RAM e NVIDIA RTX 2060 
 | Embedding | `qwen3-embedding:0.6b` | 639 MB | RAG, memoria e ricerca semantica multilingue |
 | Guardrail | `granite3-guardian:2b` | 2,7 GB | rischio, jailbreak, rilevanza e groundedness RAG |
 
-Whisper e Piper non sono modelli Ollama: restano servizi locali separati rispettivamente per trascrizione e sintesi vocale.
+Whisper non è un modello Ollama; la trascrizione usa `whisper.cpp` e la sintesi usa Windows SAPI con voce italiana.
 
 ## Regole di esecuzione
 
 - Caricare un solo modello GPU pesante alla volta.
 - Usare il profilo `Bilanciato` e 8192 token di contesto come default.
 - Attivare `think` solo per modelli che dichiarano la capacità `thinking`; il backend non inoltra la catena interna all'interfaccia.
-- Scaricare il modello specializzato dopo l'uso con `keep_alive: 0` quando viene invocato da un job isolato.
+- Conservare i modelli interattivi per pochi minuti; il coder Evolution usa CPU e `keep_alive: 5m` per evitare reload concorrenti del runner.
 - Non mostrare i modelli con sola capacità `embedding` nel selettore della chat.
 - Non eseguire mai codice generato direttamente: il modello di coding produce una proposta da validare, testare in sandbox e sottoporre alla policy.
-- Per output con formato rigoroso usare prima `qwen3:4b-instruct`; nei test locali `qwen2.5-coder:3b` ha mostrato migliore velocità ma ha aggiunto Markdown non richiesto. Il coder resta specialista per analisi e proposta di patch, non per output machine-readable senza validazione.
+- Per output con formato rigoroso il coder Evolution usa uno schema JSON `search/replace`; AURA genera la diff e la verifica con Git, senza fidarsi di hunk o risultati di test dichiarati dal modello.
 - Il guardrail aggiunge un segnale di rischio, ma non sostituisce policy deterministiche, approvazioni, sandbox o controlli Windows.
-- `granite3-guardian:2b` ha superato il controllo differenziale in inglese (`No` innocuo, `Yes` rischioso), ma ha prodotto falsi positivi nei test italiani. Finché non viene calibrato, è solo consultivo, riceve input normalizzato in inglese e non può autorizzare o bloccare azioni da solo.
+- `granite3-guardian:2b` ha superato un controllo differenziale in inglese, ma ha prodotto falsi positivi nei test italiani. Finché non viene calibrato, un filtro deterministico gli inoltra solo messaggi con indicatori di rischio; resta consultivo e non può autorizzare o bloccare azioni da solo.
+- Sul PC target Ollama 0.32.6 con RTX 2060/Turing ha mostrato stalli con Flash Attention. Il setup imposta `OLLAMA_FLASH_ATTENTION=false` e `OLLAMA_LLM_LIBRARY=cuda_v13`; serve riavviare Ollama dopo la modifica.
 
 ## Verifica manuale
 

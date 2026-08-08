@@ -58,22 +58,23 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 
 **Uscita:** la WebView non può raggiungere direttamente Ollama; un ciphertext spostato fra righe non è autenticabile; il frontend non può dichiarare un'azione reversibile. Approval token e runner restano gate obbligatori della Fase 4.
 
-## Fase 3 — Voce locale (in corso)
+## Fase 3 — Voce locale (funzioni completate, collaudo hardware pendente)
 
 - [x] Acquisizione microfono push-to-talk, limite 30 secondi e indicatore evidente.
 - [x] Whisper locale multilingue con lingua italiana forzata, Silero VAD e confidenza media token.
-- [x] Trascrizione depositata come bozza, mai inviata o eseguita automaticamente.
+- [x] Trascrizione in bozza e invio automatico opzionale solo con confidenza almeno 70%.
 - [x] Selezione microfono, preferenza OPPO, hot-plug Bluetooth e ricampionamento 8/16/48 kHz.
 - [x] Diagnostica livello audio, cleanup su errore e singolo worker Whisper.
-- [ ] Piper locale con interruzione immediata della sintesi.
-- [ ] Conferma obbligatoria se la trascrizione sensibile è ambigua.
+- [x] TTS italiano locale Windows SAPI con interruzione immediata; Piper resta alternativa opzionale.
+- [x] Conferma nativa obbligatoria per ogni azione PC mutante, indipendente dalla trascrizione.
 - [ ] AudioWorklet e scorciatoia push-to-talk configurabile.
 
 **Uscita:** comando vocale end-to-end senza cloud; microfono inattivo fuori dalla finestra dichiarata.
 
 ## Fase 4 — Strumenti PC sicuri
 
-- [x] Registro iniziale tipizzato: metriche, processi e apertura di tre app in allowlist.
+- [x] Registro tipizzato: metriche, processi, dieci destinazioni Windows, terminazione PID protetta e blocco sessione.
+- [x] Centro controllo PC nella UI e grammatica vocale deterministica.
 - [x] Comandi locali deterministici e nessuna shell generata dal modello.
 - [ ] Note e ricerca file in radici esplicite.
 - [ ] Radici leggibili/scrivibili esplicite e path canonicalization.
@@ -117,16 +118,19 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 - [x] Registrazione proposta/report senza esecuzione né modifica del progetto host.
 - [x] Report AES-256-GCM autenticati, legati all'ID e cronologia decifrata con limiti anti-abuso.
 - [x] Rilevamento fail-closed: WSL richiede una distribuzione operativa; Docker/Podman devono rispondere entro il timeout.
+- [x] Generazione patch Ollama, runner WSL+bubblewrap e promozione manuale collegati al backend/UI.
+- [x] Quote CPU/RAM/processi/file descriptor/dimensione file e profili test allowlistati.
 - [ ] SDK plugin, template firmato e API di capacità ristrette.
 - [ ] Sandbox usa-e-getta/Windows Sandbox o VM con snapshot.
 - [ ] SBOM, scansione dipendenze/licenze, test e report dei diff.
-- [ ] Promozione manuale, canary, monitoraggio e rollback automatico.
+- [x] Promozione manuale su branch di revisione, hash SHA-256, worktree pulito e nessun commit automatico.
+- [ ] Canary, monitoraggio e rollback automatico dopo la revisione.
 
 **Uscita:** un plugin dimostrativo viene generato e provato senza modificare l'host, poi installato solo dopo approvazione.
 
 ## Fase 9 — Sicurezza difensiva
 
-- [ ] Stato Defender, Firewall, BitLocker, aggiornamenti e backup.
+- [x] Security Center: Defender, scansioni, definizioni, Firewall, UAC, Secure Boot, BitLocker, Windows Update, firma e hash eseguibile.
 - [ ] Analisi eventi e vulnerabilità con fonti e severità.
 - [ ] Correzioni prima simulate e poi approvate singolarmente.
 - [ ] Incident mode: isola rete/processo solo tramite playbook autorizzato.

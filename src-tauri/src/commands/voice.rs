@@ -1,8 +1,9 @@
-use super::{policy::enforce_capability, storage::AppState};
+use super::{audit::append_audit, policy::enforce_capability, storage::AppState};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
@@ -27,6 +28,8 @@ pub struct VoiceStatus {
     model: &'static str,
     vad: bool,
     max_seconds: u32,
+    tts_available: bool,
+    tts_engine: &'static str,
 }
 
 #[derive(Serialize)]
@@ -46,7 +49,105 @@ pub fn voice_status(state: State<'_, AppState>) -> VoiceStatus {
         model: "base multilingual",
         vad: paths.vad_model.is_file(),
         max_seconds: 30,
+        tts_available: cfg!(windows),
+        tts_engine: "Windows SAPI",
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceSpeakResult {
+    started: bool,
+    characters: usize,
+}
+
+#[tauri::command]
+pub fn voice_speak(text: String, state: State<'_, AppState>) -> Result<VoiceSpeakResult, String> {
+    enforce_capability("voice.speak", "allow")?;
+    let text = validate_tts_text(&text)?;
+    let mut active = state
+        .tts_process
+        .lock()
+        .map_err(|_| "Motore TTS occupato.".to_string())?;
+    if let Some(mut previous) = active.take() {
+        let _ = previous.kill();
+        let _ = previous.wait();
+    }
+    let script = "$ErrorActionPreference='Stop'; $text=[Console]::In.ReadToEnd(); Add-Type -AssemblyName System.Speech; $speaker=New-Object System.Speech.Synthesis.SpeechSynthesizer; $it=$speaker.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -like 'it-*' } | Select-Object -First 1; if($it){$speaker.SelectVoice($it.VoiceInfo.Name)}; $speaker.Rate=0; $speaker.Volume=90; $speaker.Speak($text)";
+    let mut command = Command::new("powershell.exe");
+    command
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            script,
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command
+        .spawn()
+        .map_err(|_| "Avvio sintesi vocale Windows fallito.".to_string())?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| "Canale TTS non disponibile.".to_string())?
+        .write_all(text.as_bytes())
+        .map_err(|_| "Invio testo al motore TTS fallito.".to_string())?;
+    let characters = text.chars().count();
+    *active = Some(child);
+    append_audit(
+        &state,
+        &Uuid::new_v4().to_string(),
+        "voice.tts.started",
+        "allow",
+        "Sintesi vocale locale avviata",
+        &serde_json::json!({"characters": characters, "contentLogged": false}).to_string(),
+    )?;
+    Ok(VoiceSpeakResult {
+        started: true,
+        characters,
+    })
+}
+
+fn validate_tts_text(text: &str) -> Result<&str, String> {
+    let text = text.trim();
+    if text.is_empty() || text.chars().count() > 4_000 || text.contains('\0') {
+        Err("Testo TTS fuori dai limiti (1-4000 caratteri).".to_string())
+    } else {
+        Ok(text)
+    }
+}
+
+#[tauri::command]
+pub fn voice_stop_speaking(state: State<'_, AppState>) -> Result<bool, String> {
+    enforce_capability("voice.speak", "allow")?;
+    let mut active = state
+        .tts_process
+        .lock()
+        .map_err(|_| "Motore TTS occupato.".to_string())?;
+    let Some(mut child) = active.take() else {
+        return Ok(false);
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    append_audit(
+        &state,
+        &Uuid::new_v4().to_string(),
+        "voice.tts.stopped",
+        "allow",
+        "Sintesi vocale locale arrestata",
+        r#"{"contentLogged":false}"#,
+    )?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -294,7 +395,9 @@ fn validate_wav(bytes: &[u8]) -> Result<f64, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cleanup_stale_audio, parse_transcript, validate_wav, VoiceBusyGuard};
+    use super::{
+        cleanup_stale_audio, parse_transcript, validate_tts_text, validate_wav, VoiceBusyGuard,
+    };
     use std::sync::{atomic::AtomicBool, Arc};
     use std::{fs, io::Write};
 
@@ -368,5 +471,14 @@ mod tests {
         assert!(VoiceBusyGuard::acquire(Arc::clone(&flag)).is_err());
         drop(first);
         assert!(VoiceBusyGuard::acquire(flag).is_ok());
+    }
+
+    #[test]
+    fn bounds_tts_text_without_interpreting_content() {
+        assert_eq!(validate_tts_text(" ciao ").expect("text"), "ciao");
+        assert!(validate_tts_text("").is_err());
+        assert!(validate_tts_text(&"a".repeat(4_001)).is_err());
+        assert!(validate_tts_text("ciao\0mondo").is_err());
+        assert!(validate_tts_text("$(Remove-Item *)").is_ok());
     }
 }

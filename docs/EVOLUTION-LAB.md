@@ -15,7 +15,7 @@ Per questo AURA opera in modalità fail-closed:
 3. marca ogni proposta `proposal-only` e `manual-review-required`;
 4. conserva una voce nell'audit autenticato.
 
-La versione 0.5.0 rilegge i report soltanto dopo aver verificato nome UUID, dimensione massima, versione dell'envelope, AES-GCM e identità autenticata come AAD. La UI mostra al massimo le 20 proposte più recenti. Un file corrotto, sostituito o associato a un altro ID viene rifiutato invece di essere interpretato.
+La versione 0.6.0 rilegge i report soltanto dopo aver verificato nome UUID, dimensione massima, versione dell'envelope, AES-GCM e identità autenticata come AAD. La UI mostra al massimo le 20 proposte più recenti e collega generazione, test e promozione. Un file corrotto, sostituito o associato a un altro ID viene rifiutato invece di essere interpretato.
 
 Una cartella o un worktree Git non costituiscono una sandbox di sicurezza.
 
@@ -39,4 +39,17 @@ Ogni tentativo produce dati strutturati: obiettivo, ipotesi, test fallito, causa
 
 ## Condizioni per abilitare l'esecuzione
 
-L'esecuzione resterà disabilitata anche dopo la semplice installazione di un runtime. La diagnostica considera WSL disponibile solo con almeno una distribuzione operativa e Docker/Podman solo se il daemon risponde entro tre secondi; nessuna combinazione modifica oggi `executionAllowed`. Occorre verificare immagine base, isolamento rete, mount, quote, distruzione dell'ambiente, scansione output e flusso di approvazione. Solo una suite di abuso superata potrà cambiare `executionAllowed`.
+La semplice presenza di un runtime non abilita l'esecuzione. `executionAllowed` diventa vero soltanto quando la distribuzione Ubuntu contiene il marker di provisioning AURA e il test bubblewrap dimostra tmpfs scrivibile, namespace separati e assenza del mount host `/mnt/c`. Docker/Podman e la sola presenza di WSL non sono sufficienti.
+
+## Pipeline operativa 0.6
+
+La pipeline è ora implementata in quattro passaggi separati:
+
+1. `evolution-generate-patch.ps1` invia solo file Git tracciati e filtrati al coder locale, accetta operazioni JSON `search/replace` con anchor univoco e costruisce deterministicamente una patch Git verificata;
+2. `evolution-sandbox-run.ps1` monta progetto e patch in sola lettura dentro WSL+bubblewrap, senza rete né profilo host, applica la patch in tmpfs ed esegue un profilo allowlistato: `Node` (`tsc --noEmit`), `Rust` (`cargo test --offline`) o `Static` (solo struttura diff);
+3. il runner esporta soltanto `validated.patch`, hash SHA-256, profilo test e log;
+4. `evolution-promote-patch.ps1` richiede `-Approve`, worktree pulito, hash valido e crea un branch `aura/evolution-*` senza commit automatico.
+
+Il runner applica limiti di 600 secondi CPU, 8 GiB di memoria virtuale, 256 processi, 256 file descriptor e 256 MiB per file. Il profilo generazione è ridotto a 4k token, massimo 10 file/80 KB di contesto e 768 token di output. Il coder usa la CPU: sul runtime Ollama 0.32.6 la RTX 2060/Turing ha mostrato stalli ripetibili sui prompt di patch, mentre il percorso CPU evita quel backend e lascia la GPU alla chat.
+
+I file di policy, crittografia, sandbox, firma e promozione sono esclusi dalla generazione automatica. Il bootstrap `setup-evolution-sandbox.ps1` abilita WSL, installa Ubuntu e bubblewrap ed esegue un test in cui `/mnt/c` deve risultare invisibile. L'8 agosto 2026 il primo passaggio elevato è terminato con `3010`: i componenti Windows sono predisposti ma serve riavviare e rieseguire lo script. Fino al superamento del marker `AURA_WSL_BWRAP_V1`, il backend resta fail-closed.

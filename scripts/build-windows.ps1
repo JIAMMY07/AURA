@@ -1,5 +1,6 @@
 param(
-  [switch]$Debug
+  [switch]$Debug,
+  [switch]$SkipSigning
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,4 +30,8 @@ if (-not (Test-Path -LiteralPath $pnpm)) {
 $arguments = @('tauri', 'build')
 if ($Debug) { $arguments += '--debug' }
 & $pnpm @arguments
-exit $LASTEXITCODE
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if (-not $Debug -and -not $SkipSigning) {
+  & (Join-Path $PSScriptRoot 'sign-windows-artifacts.ps1')
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}

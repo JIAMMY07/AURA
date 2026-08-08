@@ -65,6 +65,12 @@ pub(crate) fn evaluate_capability(capability: &str) -> PolicyDecision {
         | "profile.read"
         | "profile.feedback"
         | "voice.transcribe"
+        | "voice.speak"
+        | "browser.inspect"
+        | "api.inspect"
+        | "rag.read"
+        | "3d.inspect"
+        | "security.inspect"
         | "evolution.inspect"
         | "conversation.read"
         | "conversation.write"
@@ -73,10 +79,32 @@ pub(crate) fn evaluate_capability(capability: &str) -> PolicyDecision {
             risk: "safe",
             reason: "Sola lettura nello scope locale consentito.",
         },
-        "app.open" | "profile.update" | "profile.clear" | "conversation.clear" => PolicyDecision {
+        "app.open"
+        | "process.terminate"
+        | "system.lock"
+        | "profile.update"
+        | "profile.clear"
+        | "conversation.clear" => PolicyDecision {
             decision: "confirm",
             risk: "moderate",
             reason: "Consenso esplicito richiesto prima dell'azione locale.",
+        },
+        "browser.open"
+        | "browser.navigate"
+        | "api.configure"
+        | "api.call"
+        | "rag.import"
+        | "rag.delete"
+        | "3d.generate"
+        | "3d.open" => PolicyDecision {
+            decision: "confirm",
+            risk: "moderate",
+            reason: "Conferma esplicita richiesta per accesso esterno o modifica locale.",
+        },
+        "security.scan" | "security.update" => PolicyDecision {
+            decision: "confirm",
+            risk: "moderate",
+            reason: "Azione difensiva Windows avviata soltanto dopo conferma esplicita.",
         },
         "evolution.propose" => PolicyDecision {
             decision: "sandbox",
@@ -138,6 +166,8 @@ mod tests {
     fn pc_and_evolution_capabilities_have_fixed_risk() {
         assert_eq!(evaluate_capability("system.processes").decision, "allow");
         assert_eq!(evaluate_capability("app.open").decision, "confirm");
+        assert_eq!(evaluate_capability("process.terminate").decision, "confirm");
+        assert_eq!(evaluate_capability("system.lock").decision, "confirm");
         assert_eq!(evaluate_capability("evolution.propose").decision, "sandbox");
     }
 
@@ -151,6 +181,10 @@ mod tests {
             "confirm"
         );
         assert_eq!(evaluate_capability("ai.chat").decision, "allow");
+        assert_eq!(evaluate_capability("rag.read").decision, "allow");
+        assert_eq!(evaluate_capability("browser.inspect").decision, "allow");
+        assert_eq!(evaluate_capability("api.call").decision, "confirm");
+        assert_eq!(evaluate_capability("3d.generate").decision, "confirm");
     }
 
     #[test]

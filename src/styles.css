@@ -40,11 +40,13 @@ select:focus, textarea:focus, input:focus { border-color: #65d6b8; box-shadow: 0
 .connection-pill.online { color: #75efd0; }
 .connection-pill.checking svg { animation: pulse 1.2s infinite; }
 .model-detail { color: #7f8ba0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.voice-device-bar { display: grid; grid-template-columns: 20px auto minmax(220px, 360px) 40px 1fr; align-items: center; gap: 10px; min-height: 48px; padding: 7px 12px; border: 1px solid #284842; border-radius: 13px; background: #0c1b1acc; }
+.voice-device-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 48px; padding: 7px 12px; border: 1px solid #284842; border-radius: 13px; background: #0c1b1acc; }
 .voice-device-bar > svg { color: #75efd0; }
 .voice-device-bar label { color: #b9c8d8; font-size: 12px; font-weight: 700; }
 .voice-device-bar select { min-width: 0; }
 .voice-device-bar small { color: #8196a5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-toggle { display: flex; align-items: center; gap: 6px; color: #a8bacb; font-size: 11px; }
+.voice-toggle input { accent-color: #65d6b8; }
 
 .chat { min-height: 290px; height: min(43vh, 480px); overflow: auto; padding: 18px; border: 1px solid #29364e; border-radius: 18px; background: linear-gradient(180deg, #0d1422dd, #09101cdd); scrollbar-color: #34445f transparent; }
 .empty-chat { height: 100%; display: grid; place-content: center; justify-items: center; text-align: center; }
@@ -108,6 +110,17 @@ select:focus, textarea:focus, input:focus { border-color: #65d6b8; box-shadow: 0
 .evolution-history article { padding: 10px 12px; border: 1px solid #29364e; border-radius: 10px; background: #111a2a; }
 .evolution-history article span, .evolution-history article small { color: #8ea0b8; }
 .evolution-history article p { margin: 6px 0; white-space: pre-wrap; }
+.evolution-config { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 10px; margin: 0 15px 12px; }
+.evolution-config label { display: grid; gap: 6px; color: #9eacc0; font-size: 12px; }
+.evolution-config input { padding: 9px 10px; }
+.evolution-actions { margin: 9px 0 0; }
+.pc-action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; padding: 0 15px 12px; }
+.pc-action-grid button, .terminate-control button { padding: 9px 11px; border: 1px solid #36516d; border-radius: 9px; color: #dbe9fb; background: #132239; }
+.terminate-control { display: flex; align-items: end; gap: 9px; margin: 0 15px; }
+.terminate-control label { display: grid; gap: 6px; color: #9eacc0; font-size: 12px; }
+.terminate-control input { padding: 9px 10px; }
+.terminate-control button.danger { color: #ffc2ca; border-color: #743b49; background: #35151e; }
+.tool-output { max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 0.9rem; border: 1px solid #29364e; border-radius: 10px; background: #080f1b; color: #b9c7d9; }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 11px; }
 .stats article { min-width: 0; background: #0d1423; border: 1px solid #27334a; border-radius: 12px; padding: 14px; }

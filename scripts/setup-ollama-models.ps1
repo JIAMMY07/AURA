@@ -1,12 +1,19 @@
 [CmdletBinding()]
 param(
-    [string]$OllamaPath = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+    [string]$OllamaPath = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe",
+    [bool]$ApplyRtx2060Workaround = $true
 )
 
 $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path -LiteralPath $OllamaPath -PathType Leaf)) {
     throw "Ollama non trovato in: $OllamaPath"
+}
+
+if ($ApplyRtx2060Workaround) {
+    [Environment]::SetEnvironmentVariable('OLLAMA_FLASH_ATTENTION', 'false', 'User')
+    [Environment]::SetEnvironmentVariable('OLLAMA_LLM_LIBRARY', 'cuda_v13', 'User')
+    Write-Host 'Profilo RTX 2060 applicato: CUDA v13 forzato e Flash Attention disattivata. Riavvia Ollama per applicarlo.'
 }
 
 $models = @(

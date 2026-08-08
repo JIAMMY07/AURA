@@ -1,7 +1,7 @@
 use super::{audit::append_audit, policy::enforce_capability, storage::AppState};
 use serde::Serialize;
 use std::{cmp::Reverse, process::Command};
-use sysinfo::{Disks, System};
+use sysinfo::{Disks, Pid, System};
 use tauri::State;
 
 const MAX_PROCESSES: usize = 50;
@@ -36,6 +36,69 @@ pub struct ProcessSnapshot {
     name: String,
     memory_bytes: u64,
     cpu_usage_percent: f32,
+}
+
+struct AllowedApplication {
+    executable: &'static str,
+    arguments: &'static [&'static str],
+    label: &'static str,
+}
+
+fn allowed_application(application: &str) -> Option<AllowedApplication> {
+    let value = match application {
+        "calculator" => AllowedApplication {
+            executable: "calc.exe",
+            arguments: &[],
+            label: "Calcolatrice",
+        },
+        "notepad" => AllowedApplication {
+            executable: "notepad.exe",
+            arguments: &[],
+            label: "Blocco note",
+        },
+        "explorer" => AllowedApplication {
+            executable: "explorer.exe",
+            arguments: &[],
+            label: "Esplora file",
+        },
+        "task-manager" => AllowedApplication {
+            executable: "taskmgr.exe",
+            arguments: &[],
+            label: "Gestione attivita",
+        },
+        "paint" => AllowedApplication {
+            executable: "mspaint.exe",
+            arguments: &[],
+            label: "Paint",
+        },
+        "snipping-tool" => AllowedApplication {
+            executable: "SnippingTool.exe",
+            arguments: &[],
+            label: "Strumento di cattura",
+        },
+        "settings" => AllowedApplication {
+            executable: "explorer.exe",
+            arguments: &["ms-settings:"],
+            label: "Impostazioni Windows",
+        },
+        "bluetooth-settings" => AllowedApplication {
+            executable: "explorer.exe",
+            arguments: &["ms-settings:bluetooth"],
+            label: "Impostazioni Bluetooth",
+        },
+        "sound-settings" => AllowedApplication {
+            executable: "explorer.exe",
+            arguments: &["ms-settings:sound"],
+            label: "Impostazioni audio",
+        },
+        "security-settings" => AllowedApplication {
+            executable: "explorer.exe",
+            arguments: &["windowsdefender:"],
+            label: "Sicurezza di Windows",
+        },
+        _ => return None,
+    };
+    Some(value)
 }
 
 #[tauri::command]
@@ -117,12 +180,9 @@ pub fn pc_open_application(
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
     enforce_capability("app.open", "confirm")?;
-    let (executable, label) = match application.as_str() {
-        "calculator" => ("calc.exe", "Calcolatrice"),
-        "notepad" => ("notepad.exe", "Blocco note"),
-        "explorer" => ("explorer.exe", "Esplora file"),
-        _ => return Err("Applicazione non presente nell'allowlist.".to_string()),
-    };
+    let allowed = allowed_application(&application)
+        .ok_or_else(|| "Applicazione non presente nell'allowlist.".to_string())?;
+    let label = allowed.label;
     if !confirm_native_action(
         "Conferma azione AURA",
         &format!("AURA vuole aprire {label}. Consentire questa singola azione?"),
@@ -138,7 +198,8 @@ pub fn pc_open_application(
         )?;
         return Ok(false);
     }
-    Command::new(executable)
+    Command::new(allowed.executable)
+        .args(allowed.arguments)
         .spawn()
         .map_err(|_| "Avvio applicazione Windows fallito.".to_string())?;
     append_audit(
@@ -148,6 +209,103 @@ pub fn pc_open_application(
         "confirm",
         &format!("Apertura controllata: {label}"),
         &serde_json::json!({ "capability": "app.open", "application": application }).to_string(),
+    )?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn pc_terminate_process(pid: u32, state: State<'_, AppState>) -> Result<bool, String> {
+    enforce_capability("process.terminate", "confirm")?;
+    if pid == 0 || pid == std::process::id() {
+        return Err("PID non terminabile da AURA.".to_string());
+    }
+    let mut system = System::new_all();
+    system.refresh_all();
+    let process = system
+        .process(Pid::from_u32(pid))
+        .ok_or_else(|| "Processo non trovato.".to_string())?;
+    let name = process
+        .name()
+        .to_string_lossy()
+        .chars()
+        .take(128)
+        .collect::<String>();
+    if protected_process(&name) {
+        return Err("Processo di sistema protetto: azione negata.".to_string());
+    }
+    if !confirm_native_action(
+        "Conferma azione AURA",
+        &format!(
+            "Terminare il processo {name} (PID {pid})? I dati non salvati potrebbero andare persi."
+        ),
+    ) {
+        append_audit(
+            &state,
+            "pc-terminate-process",
+            "tool.cancelled",
+            "confirm",
+            "Terminazione processo annullata",
+            &serde_json::json!({"capability":"process.terminate","pid":pid}).to_string(),
+        )?;
+        return Ok(false);
+    }
+    if !process.kill() {
+        return Err("Windows non ha consentito di terminare il processo.".to_string());
+    }
+    append_audit(
+        &state,
+        "pc-terminate-process",
+        "tool.executed",
+        "confirm",
+        "Processo terminato dopo conferma",
+        &serde_json::json!({"capability":"process.terminate","pid":pid}).to_string(),
+    )?;
+    Ok(true)
+}
+
+fn protected_process(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "system"
+            | "registry"
+            | "smss.exe"
+            | "csrss.exe"
+            | "wininit.exe"
+            | "services.exe"
+            | "lsass.exe"
+            | "svchost.exe"
+            | "winlogon.exe"
+            | "dwm.exe"
+            | "explorer.exe"
+            | "fontdrvhost.exe"
+            | "memory compression"
+            | "local-ai-assistant.exe"
+    )
+}
+
+#[tauri::command]
+pub fn pc_lock_workstation(state: State<'_, AppState>) -> Result<bool, String> {
+    enforce_capability("system.lock", "confirm")?;
+    if !confirm_native_action(
+        "Conferma azione AURA",
+        "Bloccare ora la sessione Windows? Per rientrare servira il PIN o la password.",
+    ) {
+        return Ok(false);
+    }
+    #[cfg(windows)]
+    let locked = unsafe { windows_sys::Win32::System::Shutdown::LockWorkStation() != 0 };
+    #[cfg(not(windows))]
+    let locked = false;
+    if !locked {
+        return Err("Blocco sessione Windows fallito.".to_string());
+    }
+    append_audit(
+        &state,
+        "pc-lock-workstation",
+        "tool.executed",
+        "confirm",
+        "Sessione Windows bloccata",
+        r#"{"capability":"system.lock"}"#,
     )?;
     Ok(true)
 }
@@ -178,18 +336,22 @@ pub(crate) fn confirm_native_action(_title: &str, _message: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::collect_system_snapshot;
+    use super::{allowed_application, collect_system_snapshot, protected_process};
 
     #[test]
     fn application_allowlist_is_intentionally_small() {
-        assert!(matches!(
-            "calculator",
-            "calculator" | "notepad" | "explorer"
-        ));
-        assert!(!matches!(
-            "powershell",
-            "calculator" | "notepad" | "explorer"
-        ));
+        assert!(allowed_application("calculator").is_some());
+        assert!(allowed_application("bluetooth-settings").is_some());
+        assert!(allowed_application("powershell").is_none());
+        assert!(allowed_application("cmd").is_none());
+    }
+
+    #[test]
+    fn critical_windows_processes_are_protected() {
+        assert!(protected_process("LSASS.EXE"));
+        assert!(protected_process("explorer.exe"));
+        assert!(protected_process("local-ai-assistant.exe"));
+        assert!(!protected_process("synthetic-user-app.exe"));
     }
 
     #[test]

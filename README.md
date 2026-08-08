@@ -1,6 +1,6 @@
-# AURA — Local AI Assistant
+# AURA 0.7.0 — Local AI Assistant
 
-Assistente desktop Windows local-first per chat privata, voce, strumenti PC controllati, ricerca web isolata e crescita tramite moduli verificati in sandbox.
+Assistente desktop Windows local-first per chat privata, voce, strumenti PC controllati, ricerca web isolata e crescita tramite moduli verificati in sandbox. La release 0.7.0 integra inoltre creazione 3D TripoSR/Blender, browser controllato con presa manuale, connettori API REST cifrati e RAG documentale locale con citazioni.
 
 ## Stato
 
@@ -9,11 +9,11 @@ Assistente desktop Windows local-first per chat privata, voce, strumenti PC cont
 - Fase 2: Ollama streaming, profili hardware, SQLite e installer Windows completati.
 - Fase 2.5: backend Rust fidato, cifratura Windows, audit HMAC e CSP completati.
 - Fase 2.6: Ollama mediato dal backend, blocco modelli cloud e cifratura contestuale completati.
-- Fase 3: in corso — push-to-talk, Whisper locale, VAD e confidenza completati; Piper resta da fare.
+- Fase 3: pipeline locale completa nello scope corrente — push-to-talk, Whisper, VAD, invio vocale opzionale e TTS italiano SAPI interrompibile; resta la prova fisica finale con le cuffie OPPO.
 
-- Fase 4: primo nucleo operativo — metriche/processi reali e apertura controllata di tre app.
-- Fase 8: Evolution Lab fail-closed — proposte cifrate, cronologia verificata e diagnostica runtime; esecuzione bloccata finché manca una sandbox forte verificata.
-- Policy 0.5: capability backend applicate direttamente a chat, voce, profilo, archivio, strumenti PC ed Evolution Lab; deny-by-default.
+- Fase 4: catalogo sicuro operativo — metriche, processi, dieci destinazioni Windows, terminazione PID protetta e blocco sessione.
+- Fase 8: pipeline Evolution collegata alla UI; generazione, runner e promozione implementati, esecuzione fail-closed fino al riavvio/provisioning WSL+bubblewrap.
+- Policy 0.6: capability backend applicate direttamente a chat, voce, profilo, archivio, strumenti PC ed Evolution Lab; deny-by-default.
 - Personalizzazione: profilo e correzioni esplicite cifrati, deduplicati e limitati, usati soltanto dal modello Ollama locale.
 - Guardrail: Granite Guardian è esposto come segnale consultivo; le policy Rust restano l'unica autorità perché il benchmark locale ha rilevato falsi positivi.
 
@@ -44,6 +44,6 @@ pnpm build:windows:debug
 
 Il backend Rust usa esclusivamente Ollama su `127.0.0.1:11434` e rifiuta modelli cloud, remoti o non GGUF. In Tauri, la cronologia è cifrata in `aura.db`; la chiave principale è custodita dal Windows Credential Manager. La voce viene convertita in WAV PCM locale e trascritta da `whisper.cpp`; la trascrizione resta una bozza finché l'utente non la invia. L'anteprima web usa esclusivamente un fallback locale.
 
-Documentazione: `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, `docs/HARDENING.md`, `docs/MODELS.md`, `docs/VOICE.md`, `docs/PC-CONTROL.md`, `docs/EVOLUTION-LAB.md`, `docs/PERSONALIZATION.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.
+Documentazione: `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, `docs/HARDENING.md`, `docs/MODELS.md`, `docs/VOICE.md`, `docs/PC-CONTROL.md`, `docs/AI-3D.md`, `docs/EVOLUTION-LAB.md`, `docs/PERSONALIZATION.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.
 
-Rapporti: `docs/TEST-REPORT-2026-08-08.md` e `docs/OPTIMIZATION-0.5.0.md`.
+Rapporti: `docs/TEST-REPORT-0.6.0-2026-08-08.md`, `docs/TEST-REPORT-2026-08-08.md`, `docs/OPTIMIZATION-0.5.0.md` e `docs/HARDENING-REMEDIATION-2026-08-08.md`.

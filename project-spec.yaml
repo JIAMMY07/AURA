@@ -16,7 +16,7 @@ local_models:
   endpoint: http://127.0.0.1:11434
   concurrent_gpu_models: 1
   unload_specialists_after_use: true
-  guardrail_mode: advisory-english-only
+  guardrail_mode: keyword-gated-defense-in-depth
   roles:
     chat: qwen3:4b-instruct
     reasoning: qwen3:4b
@@ -37,7 +37,7 @@ security:
   password_kdf: argon2id
   trusted_boundary: rust-backend
   webview_sql: forbidden
-  content_security_policy: strict-localhost
+  content_security_policy: strict-ipc-only
   webview_runtime_diagnostics: windows-controlled-not-zero-egress
   audit_integrity: sha256-chain-hmac
   capability_enforcement: backend-static-fail-closed
@@ -57,28 +57,30 @@ voice:
   transcription_rate_hz: 16000
   concurrent_transcriptions: 1
   max_recording_seconds: 30
-  auto_submit: false
+  auto_submit: optional-confidence-gte-70
   auto_execute: false
+  tts_engine: windows-sapi-it-it
+  tts_interruptible: true
 capabilities:
   phase_1: [chat-shell, policy-engine, audit-preview, resource-profile]
   phase_2: [ollama, sqlite-history, model-manager]
-  phase_3: [push-to-talk, whisper, piper]
+  phase_3: [push-to-talk, whisper, windows-sapi-tts]
   phase_4: [safe-pc-tools, writable-roots, rollback]
   phase_5: [document-library, incremental-rag, citations]
   phase_6: [isolated-browser, web-research, manual-takeover]
   phase_7: [api-connectors, oauth, openapi, webhooks]
   phase_8: [sandbox-evolution, plugin-manifests, vm-tests]
   phase_9: [defensive-security, defender, patch-report]
-implemented_pc_tools: [system-metrics-readonly, process-list-limited, open-calculator-confirmed, open-notepad-confirmed, open-explorer-confirmed]
+implemented_pc_tools: [system-metrics-readonly, process-list-limited, open-app-allowlist-confirmed, terminate-pid-protected-confirmed, lock-workstation-confirmed]
 personalization:
   encrypted_profile: true
   explicit_feedback: true
   local_model_context_only: true
   preferences_are_authorization: false
 evolution_lab:
-  current_mode: proposal-only
+  current_mode: pipeline-connected-fail-closed
   strong_sandbox_detected: false
-  generated_code_execution: false
+  generated_code_execution: disabled-pending-reboot-and-runtime-verification
   encrypted_report_history: authenticated-and-bounded
   runtime_detection: operational-probe-with-timeout
 non_goals: [minecraft, offensive-security, credential-extraction, autonomous-privilege-escalation]
