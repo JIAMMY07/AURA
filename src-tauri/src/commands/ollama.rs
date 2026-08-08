@@ -64,6 +64,15 @@ pub struct ChatResult {
     done_reason: Option<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GuardrailStatus {
+    installed: bool,
+    mode: &'static str,
+    blocking: bool,
+    reason: &'static str,
+}
+
 #[derive(Deserialize)]
 struct ChatChunk {
     message: Option<ChatChunkMessage>,
@@ -98,11 +107,28 @@ pub async fn ollama_list_models() -> Result<Vec<OllamaModel>, String> {
 }
 
 #[tauri::command]
+pub async fn guardrail_status() -> Result<GuardrailStatus, String> {
+    let installed = fetch_models().await?.iter().any(|model| {
+        model
+            .name
+            .to_ascii_lowercase()
+            .contains("granite3-guardian")
+    });
+    Ok(GuardrailStatus {
+        installed,
+        mode: "advisory",
+        blocking: false,
+        reason: "Le policy Rust sono autoritative; Guardian non blocca azioni perché i test locali mostrano falsi positivi.",
+    })
+}
+
+#[tauri::command]
 pub async fn ollama_chat(
     request: ChatRequest,
     on_event: Channel<OllamaEvent>,
     state: State<'_, AppState>,
 ) -> Result<ChatResult, String> {
+    super::policy::enforce_capability("ai.chat", "allow")?;
     validate_request(&request)?;
     let _generation_guard = GenerationGuard::acquire(Arc::clone(&state.generation_busy))?;
     let available = fetch_models().await?;

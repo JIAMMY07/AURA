@@ -15,6 +15,8 @@ Per questo AURA opera in modalità fail-closed:
 3. marca ogni proposta `proposal-only` e `manual-review-required`;
 4. conserva una voce nell'audit autenticato.
 
+La versione 0.5.0 rilegge i report soltanto dopo aver verificato nome UUID, dimensione massima, versione dell'envelope, AES-GCM e identità autenticata come AAD. La UI mostra al massimo le 20 proposte più recenti. Un file corrotto, sostituito o associato a un altro ID viene rifiutato invece di essere interpretato.
+
 Una cartella o un worktree Git non costituiscono una sandbox di sicurezza.
 
 ## Architettura target
@@ -37,4 +39,4 @@ Ogni tentativo produce dati strutturati: obiettivo, ipotesi, test fallito, causa
 
 ## Condizioni per abilitare l'esecuzione
 
-L'esecuzione resterà disabilitata anche dopo la semplice installazione di un runtime. Occorre verificare immagine base, isolamento rete, mount, quote, distruzione dell'ambiente, scansione output e flusso di approvazione. Solo una suite di abuso superata potrà cambiare `executionAllowed`.
+L'esecuzione resterà disabilitata anche dopo la semplice installazione di un runtime. La diagnostica considera WSL disponibile solo con almeno una distribuzione operativa e Docker/Podman solo se il daemon risponde entro tre secondi; nessuna combinazione modifica oggi `executionAllowed`. Occorre verificare immagine base, isolamento rete, mount, quote, distruzione dell'ambiente, scansione output e flusso di approvazione. Solo una suite di abuso superata potrà cambiare `executionAllowed`.

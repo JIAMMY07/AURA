@@ -13,9 +13,22 @@ pub struct ActionRequest {
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct PolicyDecision {
-    decision: &'static str,
+    pub(crate) decision: &'static str,
     risk: &'static str,
     reason: &'static str,
+}
+
+pub(crate) fn enforce_capability(
+    capability: &str,
+    required_decision: &str,
+) -> Result<PolicyDecision, String> {
+    let decision = evaluate_capability(capability);
+    if decision.decision != required_decision {
+        return Err(format!(
+            "Policy backend incoerente per {capability}: azione bloccata in sicurezza."
+        ));
+    }
+    Ok(decision)
 }
 
 #[tauri::command]
@@ -47,12 +60,20 @@ pub(crate) fn evaluate_capability(capability: &str) -> PolicyDecision {
             risk: "critical",
             reason: "Capability vietata dalla policy backend.",
         },
-        "system.inspect" | "system.processes" => PolicyDecision {
+        "system.inspect"
+        | "system.processes"
+        | "profile.read"
+        | "profile.feedback"
+        | "voice.transcribe"
+        | "evolution.inspect"
+        | "conversation.read"
+        | "conversation.write"
+        | "ai.chat" => PolicyDecision {
             decision: "allow",
             risk: "safe",
             reason: "Sola lettura nello scope locale consentito.",
         },
-        "app.open" | "profile.update" | "profile.clear" => PolicyDecision {
+        "app.open" | "profile.update" | "profile.clear" | "conversation.clear" => PolicyDecision {
             decision: "confirm",
             risk: "moderate",
             reason: "Consenso esplicito richiesto prima dell'azione locale.",
@@ -96,7 +117,7 @@ fn validate(action: &ActionRequest) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::evaluate_capability;
+    use super::{enforce_capability, evaluate_capability};
 
     #[test]
     fn unknown_capabilities_are_denied() {
@@ -118,5 +139,24 @@ mod tests {
         assert_eq!(evaluate_capability("system.processes").decision, "allow");
         assert_eq!(evaluate_capability("app.open").decision, "confirm");
         assert_eq!(evaluate_capability("evolution.propose").decision, "sandbox");
+    }
+
+    #[test]
+    fn private_data_and_chat_capabilities_have_fixed_risk() {
+        assert_eq!(evaluate_capability("profile.read").decision, "allow");
+        assert_eq!(evaluate_capability("conversation.read").decision, "allow");
+        assert_eq!(evaluate_capability("conversation.write").decision, "allow");
+        assert_eq!(
+            evaluate_capability("conversation.clear").decision,
+            "confirm"
+        );
+        assert_eq!(evaluate_capability("ai.chat").decision, "allow");
+    }
+
+    #[test]
+    fn tool_enforcement_fails_closed_if_policy_does_not_match() {
+        assert!(enforce_capability("system.inspect", "allow").is_ok());
+        assert!(enforce_capability("app.open", "allow").is_err());
+        assert!(enforce_capability("unknown.tool", "allow").is_err());
     }
 }

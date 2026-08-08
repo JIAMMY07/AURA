@@ -59,6 +59,7 @@ impl AppState {
 
 #[tauri::command]
 pub fn storage_load(state: State<'_, AppState>) -> Result<Vec<ChatMessage>, String> {
+    super::policy::enforce_capability("conversation.read", "allow")?;
     let db = state
         .database
         .lock()
@@ -110,6 +111,7 @@ pub fn storage_load(state: State<'_, AppState>) -> Result<Vec<ChatMessage>, Stri
 
 #[tauri::command]
 pub fn storage_save(messages: Vec<ChatMessage>, state: State<'_, AppState>) -> Result<(), String> {
+    super::policy::enforce_capability("conversation.write", "allow")?;
     let retained = messages
         .into_iter()
         .rev()
@@ -149,7 +151,22 @@ pub fn storage_save(messages: Vec<ChatMessage>, state: State<'_, AppState>) -> R
 }
 
 #[tauri::command]
-pub fn storage_clear(state: State<'_, AppState>) -> Result<(), String> {
+pub fn storage_clear(state: State<'_, AppState>) -> Result<bool, String> {
+    super::policy::enforce_capability("conversation.clear", "confirm")?;
+    if !super::pc::confirm_native_action(
+        "Conferma cancellazione",
+        "Cancellare definitivamente la cronologia locale cifrata? L'azione non puo essere annullata.",
+    ) {
+        super::audit::append_audit(
+            &state,
+            "storage-clear",
+            "storage.clear_cancelled",
+            "confirm",
+            "Cancellazione cronologia annullata dall'utente",
+            r#"{"contentLogged":false}"#,
+        )?;
+        return Ok(false);
+    }
     {
         let db = state
             .database
@@ -162,10 +179,11 @@ pub fn storage_clear(state: State<'_, AppState>) -> Result<(), String> {
         &state,
         "storage-clear",
         "storage.cleared",
-        "allow",
+        "confirm",
         "Cronologia locale cancellata",
-        "{}",
-    )
+        r#"{"contentLogged":false}"#,
+    )?;
+    Ok(true)
 }
 
 fn validate_message(message: &ChatMessage) -> Result<(), String> {

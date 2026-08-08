@@ -115,6 +115,8 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 
 - [x] Diagnostica runtime e modalità fail-closed quando manca isolamento forte.
 - [x] Registrazione proposta/report senza esecuzione né modifica del progetto host.
+- [x] Report AES-256-GCM autenticati, legati all'ID e cronologia decifrata con limiti anti-abuso.
+- [x] Rilevamento fail-closed: WSL richiede una distribuzione operativa; Docker/Podman devono rispondere entro il timeout.
 - [ ] SDK plugin, template firmato e API di capacità ristrette.
 - [ ] Sandbox usa-e-getta/Windows Sandbox o VM con snapshot.
 - [ ] SBOM, scansione dipendenze/licenze, test e report dei diff.

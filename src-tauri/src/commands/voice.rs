@@ -1,4 +1,4 @@
-use super::storage::AppState;
+use super::{policy::enforce_capability, storage::AppState};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 use std::{
@@ -54,6 +54,7 @@ pub async fn voice_transcribe(
     wav_base64: String,
     state: State<'_, AppState>,
 ) -> Result<VoiceTranscript, String> {
+    enforce_capability("voice.transcribe", "allow")?;
     if wav_base64.len() > MAX_BASE64_BYTES {
         return Err("Registrazione vocale troppo grande.".to_string());
     }

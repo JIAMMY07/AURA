@@ -24,6 +24,7 @@ fn main() {
             commands::ollama::ollama_list_models,
             commands::ollama::ollama_chat,
             commands::ollama::ollama_cancel,
+            commands::ollama::guardrail_status,
             commands::pc::pc_system_snapshot,
             commands::pc::pc_list_processes,
             commands::pc::pc_open_application,
@@ -33,6 +34,7 @@ fn main() {
             commands::profile::feedback_record,
             commands::sandbox::sandbox_status,
             commands::sandbox::evolution_record_proposal,
+            commands::sandbox::evolution_list_proposals,
             commands::voice::voice_status,
             commands::voice::voice_transcribe,
         ])

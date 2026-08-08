@@ -14,8 +14,8 @@ import {
   transcribeVoice, VoiceRecorder, type VoiceDevicePreference, type VoiceInputDevice, type VoiceStatus
 } from './adapters/voice';
 import {
-  clearProfile, getSandboxStatus, getSystemSnapshot, listProcesses, loadProfile, openApplication,
-  recordEvolutionProposal, recordFeedback, saveProfile, type PersonalProfile, type SandboxStatus
+  clearProfile, getGuardrailStatus, getSandboxStatus, getSystemSnapshot, listEvolutionProposals, listProcesses, loadProfile, openApplication,
+  recordEvolutionProposal, recordFeedback, saveProfile, type EvolutionReportView, type GuardrailStatus, type PersonalProfile, type SandboxStatus
 } from './adapters/agent';
 import { parseLocalCommand, type LocalCommand } from './core/localCommands';
 
@@ -92,6 +92,8 @@ export function App() {
   const [sandbox, setSandbox] = useState<SandboxStatus>();
   const [evolutionObjective, setEvolutionObjective] = useState('');
   const [evolutionNotice, setEvolutionNotice] = useState('');
+  const [evolutionReports, setEvolutionReports] = useState<EvolutionReportView[]>([]);
+  const [guardrail, setGuardrail] = useState<GuardrailStatus>();
   const abortRef = useRef<AbortController | undefined>(undefined);
   const streamBufferRef = useRef('');
   const streamFlushRef = useRef<number | undefined>(undefined);
@@ -142,6 +144,8 @@ export function App() {
   useEffect(() => {
     void loadProfile().then(profile => { if (profile) setPersonalProfile(profile); }).catch(() => undefined);
     void getSandboxStatus().then(setSandbox).catch(() => undefined);
+    void listEvolutionProposals().then(setEvolutionReports).catch(() => undefined);
+    void getGuardrailStatus().then(setGuardrail).catch(() => undefined);
   }, []);
   useEffect(() => {
     if (!voiceStatus?.available || !navigator.mediaDevices) return;
@@ -301,7 +305,8 @@ export function App() {
   async function persistProfile() {
     setProfileNotice('');
     try {
-      await saveProfile(personalProfile);
+      const saved = await saveProfile(personalProfile);
+      if (!saved) return;
       setProfileNotice('Profilo cifrato salvato. Sarà applicato dalla prossima risposta locale.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -309,9 +314,9 @@ export function App() {
   }
 
   async function removeProfile() {
-    if (!window.confirm('Cancellare definitivamente profilo personale e correzioni apprese?')) return;
     try {
-      await clearProfile();
+      const cleared = await clearProfile();
+      if (!cleared) return;
       setPersonalProfile(EMPTY_PROFILE);
       setProfileNotice('Profilo e feedback cancellati definitivamente.');
     } catch (cause) {
@@ -342,6 +347,7 @@ export function App() {
         evolutionObjective.trim()
       );
       setEvolutionNotice(`Proposta ${proposal.id} registrata senza eseguire codice. Report: ${proposal.reportPath}`);
+      setEvolutionReports(await listEvolutionProposals());
       setEvolutionObjective('');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -368,7 +374,8 @@ export function App() {
   async function resetConversation() {
     abortRef.current?.abort();
     try {
-      await conversationStore.clear();
+      const cleared = await conversationStore.clear();
+      if (!cleared) return;
     } catch {
       setError('Impossibile cancellare l’archivio locale.');
       return;
@@ -615,9 +622,17 @@ export function App() {
         <textarea value={evolutionObjective} onChange={event => setEvolutionObjective(event.target.value)} placeholder="Descrivi la funzione o il miglioramento da simulare…" rows={3} />
         <div className="settings-actions">
           <button type="button" onClick={() => void createEvolutionProposal()} disabled={!evolutionObjective.trim()}>Registra proposta isolata</button>
-          <button type="button" onClick={() => void getSandboxStatus().then(setSandbox)}>Aggiorna stato sandbox</button>
+          <button type="button" onClick={() => void Promise.all([getSandboxStatus().then(setSandbox), listEvolutionProposals().then(setEvolutionReports)])}>Aggiorna stato sandbox</button>
         </div>
         {evolutionNotice && <div className="voice-notice">{evolutionNotice}</div>}
+        {evolutionReports.length > 0 && <div className="evolution-history">
+          <strong>Proposte cifrate verificabili</strong>
+          {evolutionReports.map(report => <article key={report.id}>
+            <span>{report.projectName} · {report.createdAt ? new Date(Number(report.createdAt)).toLocaleString('it-IT') : 'data legacy'}</span>
+            <p>{report.objective}</p>
+            <small>{report.state} · esecuzione {report.executionAllowed ? 'abilitata' : 'bloccata'} · promozione manuale</small>
+          </article>)}
+        </div>}
       </details>
 
       <section className="stats">
@@ -627,6 +642,7 @@ export function App() {
         <article><span>Memoria chat</span><strong><Database /> {storageMode === 'encrypted-windows' ? 'Cifrata' : storageMode === 'browser-fallback' ? 'Locale' : 'RAM'} · {messages.length}/100</strong></article>
         <article><span>Audit</span><strong><ShieldCheck /> {auditStatus ? `${auditStatus.valid ? 'Integro' : 'Alterato'} · ${auditStatus.count}` : 'Anteprima web'}</strong></article>
         <article><span>Controllo PC</span><strong><Cpu /> Tool tipizzati · no shell</strong></article>
+        <article><span>Guardrail</span><strong><ShieldCheck /> Policy Rust · Guardian {guardrail?.installed ? 'consultivo' : 'assente'}</strong></article>
       </section>
     </main>
   </div>;

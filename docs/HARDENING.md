@@ -11,8 +11,11 @@ La WebView non possiede accesso SQL. Può invocare soltanto comandi Rust registr
 - `audit_verify`
 - `ollama_health`, `ollama_list_models`, `ollama_chat`, `ollama_cancel`
 - `voice_status`, `voice_transcribe`
+- `pc_system_snapshot`, `pc_list_processes`, `pc_open_application`
+- `profile_load`, `profile_save`, `profile_clear`, `profile_feedback`
+- `sandbox_status`, `evolution_record_proposal`, `evolution_list_proposals`
 
-Ogni futura azione PC deve seguire lo stesso modello: comando specifico, capability registrata, rischio assegnato dal backend e deny-by-default.
+I comandi operativi applicano direttamente una capability statica nel backend. La WebView non può declassare il rischio: una capability sconosciuta o incoerente fallisce chiusa. Letture e scritture ordinarie restano limitate; apertura applicazioni, modifica profilo e cancellazione archivio richiedono la classe `confirm`. La cancellazione della cronologia mostra inoltre una conferma Windows nativa e registra anche l'annullamento senza contenuti.
 
 ## Protezione dei messaggi
 
@@ -36,7 +39,7 @@ La CSP controlla il contenuto applicativo, non la diagnostica interna di Microso
 
 - L'installer non è firmato.
 - Non esiste ancora un approval token monouso.
-- Non esistono ancora tool PC, sandbox reale o browser runner.
+- I tool PC sono ancora intenzionalmente limitati a diagnostica in sola lettura e apertura confermata di tre applicazioni; non esistono ancora sandbox reale o browser runner.
 - Il controllo stretto dei modelli impedisce ad AURA di selezionare modelli cloud, ma non configura globalmente le altre applicazioni che usano Ollama.
 - La voce dispone di VAD e confidence score, ma non ancora di sintesi Piper.
 - Per recupero da cancellazione totale dell'audit serve un backup cifrato con ancoraggio dell'ultimo hash.

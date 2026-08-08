@@ -12,8 +12,10 @@ Assistente desktop Windows local-first per chat privata, voce, strumenti PC cont
 - Fase 3: in corso — push-to-talk, Whisper locale, VAD e confidenza completati; Piper resta da fare.
 
 - Fase 4: primo nucleo operativo — metriche/processi reali e apertura controllata di tre app.
-- Fase 8: Evolution Lab fail-closed — proposta e report disponibili; esecuzione bloccata finché manca una sandbox forte verificata.
-- Personalizzazione: profilo e correzioni esplicite cifrati, usati soltanto dal modello Ollama locale.
+- Fase 8: Evolution Lab fail-closed — proposte cifrate, cronologia verificata e diagnostica runtime; esecuzione bloccata finché manca una sandbox forte verificata.
+- Policy 0.5: capability backend applicate direttamente a chat, voce, profilo, archivio, strumenti PC ed Evolution Lab; deny-by-default.
+- Personalizzazione: profilo e correzioni esplicite cifrati, deduplicati e limitati, usati soltanto dal modello Ollama locale.
+- Guardrail: Granite Guardian è esposto come segnale consultivo; le policy Rust restano l'unica autorità perché il benchmark locale ha rilevato falsi positivi.
 
 ## Installazione già configurata sul PC
 
@@ -44,4 +46,4 @@ Il backend Rust usa esclusivamente Ollama su `127.0.0.1:11434` e rifiuta modelli
 
 Documentazione: `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, `docs/HARDENING.md`, `docs/MODELS.md`, `docs/VOICE.md`, `docs/PC-CONTROL.md`, `docs/EVOLUTION-LAB.md`, `docs/PERSONALIZATION.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.
 
-Rapporto della campagna AI/coding/cybersecurity: `docs/TEST-REPORT-2026-08-08.md`.
+Rapporti: `docs/TEST-REPORT-2026-08-08.md` e `docs/OPTIMIZATION-0.5.0.md`.

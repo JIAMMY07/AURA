@@ -10,7 +10,7 @@ export interface ConversationStore {
   readonly mode: StorageMode;
   load(): Promise<ChatMessage[]>;
   save(messages: ChatMessage[]): Promise<void>;
-  clear(): Promise<void>;
+  clear(): Promise<boolean>;
 }
 
 interface StorageLike {
@@ -43,8 +43,9 @@ export class LocalConversationStore implements ConversationStore {
     this.storage?.setItem(STORAGE_KEY, JSON.stringify(messages.filter(isChatMessage).slice(-MAX_MESSAGES)));
   }
 
-  async clear(): Promise<void> {
+  async clear(): Promise<boolean> {
     this.storage?.removeItem(STORAGE_KEY);
+    return true;
   }
 }
 
@@ -52,7 +53,7 @@ class TauriConversationStore implements ConversationStore {
   readonly mode = 'encrypted-windows' as const;
   load(): Promise<ChatMessage[]> { return invoke('storage_load'); }
   save(messages: ChatMessage[]): Promise<void> { return invoke('storage_save', { messages }); }
-  clear(): Promise<void> { return invoke('storage_clear'); }
+  clear(): Promise<boolean> { return invoke('storage_clear'); }
 }
 
 export function createConversationStore(): ConversationStore {

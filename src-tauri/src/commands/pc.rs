@@ -1,4 +1,4 @@
-use super::{audit::append_audit, storage::AppState};
+use super::{audit::append_audit, policy::enforce_capability, storage::AppState};
 use serde::Serialize;
 use std::{cmp::Reverse, process::Command};
 use sysinfo::{Disks, System};
@@ -40,6 +40,7 @@ pub struct ProcessSnapshot {
 
 #[tauri::command]
 pub fn pc_system_snapshot(state: State<'_, AppState>) -> Result<SystemSnapshot, String> {
+    enforce_capability("system.inspect", "allow")?;
     let snapshot = collect_system_snapshot();
     append_audit(
         &state,
@@ -84,6 +85,7 @@ fn collect_system_snapshot() -> SystemSnapshot {
 
 #[tauri::command]
 pub fn pc_list_processes(state: State<'_, AppState>) -> Result<Vec<ProcessSnapshot>, String> {
+    enforce_capability("system.processes", "allow")?;
     let mut system = System::new_all();
     system.refresh_all();
     let mut processes = system
@@ -114,6 +116,7 @@ pub fn pc_open_application(
     application: String,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
+    enforce_capability("app.open", "confirm")?;
     let (executable, label) = match application.as_str() {
         "calculator" => ("calc.exe", "Calcolatrice"),
         "notepad" => ("notepad.exe", "Blocco note"),

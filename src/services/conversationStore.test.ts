@@ -32,7 +32,7 @@ describe('conversation store fallback', () => {
   it('clears persisted messages', async () => {
     const store = new LocalConversationStore(new MemoryStorage());
     await store.save([message(1)]);
-    await store.clear();
+    await expect(store.clear()).resolves.toBe(true);
     await expect(store.load()).resolves.toEqual([]);
   });
 });

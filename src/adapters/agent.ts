@@ -52,6 +52,24 @@ export interface EvolutionProposal {
   status: string;
 }
 
+export interface EvolutionReportView {
+  id: string;
+  projectName: string;
+  objective: string;
+  state: string;
+  promotion: string;
+  createdAt: string;
+  strongIsolationAvailable: boolean;
+  executionAllowed: boolean;
+}
+
+export interface GuardrailStatus {
+  installed: boolean;
+  mode: string;
+  blocking: boolean;
+  reason: string;
+}
+
 function requireDesktop() {
   if (!isTauri()) throw new Error('Funzione disponibile soltanto nell’app desktop AURA.');
 }
@@ -76,14 +94,14 @@ export async function loadProfile(): Promise<PersonalProfile | null> {
   return invoke<PersonalProfile | null>('profile_load');
 }
 
-export async function saveProfile(profile: PersonalProfile): Promise<void> {
+export async function saveProfile(profile: PersonalProfile): Promise<boolean> {
   requireDesktop();
-  return invoke('profile_save', { profile });
+  return invoke<boolean>('profile_save', { profile });
 }
 
-export async function clearProfile(): Promise<void> {
+export async function clearProfile(): Promise<boolean> {
   requireDesktop();
-  return invoke('profile_clear');
+  return invoke<boolean>('profile_clear');
 }
 
 export async function recordFeedback(messageId: string, rating: 'helpful' | 'correction', correction = ''): Promise<void> {
@@ -107,4 +125,19 @@ export async function getSandboxStatus(): Promise<SandboxStatus> {
 export async function recordEvolutionProposal(projectName: string, objective: string): Promise<EvolutionProposal> {
   requireDesktop();
   return invoke<EvolutionProposal>('evolution_record_proposal', { projectName, objective });
+}
+
+export async function listEvolutionProposals(): Promise<EvolutionReportView[]> {
+  if (!isTauri()) return [];
+  return invoke<EvolutionReportView[]>('evolution_list_proposals');
+}
+
+export async function getGuardrailStatus(): Promise<GuardrailStatus> {
+  if (!isTauri()) return {
+    installed: false,
+    mode: 'advisory',
+    blocking: false,
+    reason: 'Anteprima web: stato Guardian non disponibile.'
+  };
+  return invoke<GuardrailStatus>('guardrail_status');
 }

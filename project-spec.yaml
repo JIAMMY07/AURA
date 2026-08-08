@@ -40,6 +40,7 @@ security:
   content_security_policy: strict-localhost
   webview_runtime_diagnostics: windows-controlled-not-zero-egress
   audit_integrity: sha256-chain-hmac
+  capability_enforcement: backend-static-fail-closed
   ollama_boundary: rust-backend-loopback-only
   ollama_cloud_models: forbidden
   evolution_host_full_access: forbidden
@@ -78,4 +79,6 @@ evolution_lab:
   current_mode: proposal-only
   strong_sandbox_detected: false
   generated_code_execution: false
+  encrypted_report_history: authenticated-and-bounded
+  runtime_detection: operational-probe-with-timeout
 non_goals: [minecraft, offensive-security, credential-extraction, autonomous-privilege-escalation]
