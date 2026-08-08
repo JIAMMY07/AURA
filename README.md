@@ -8,7 +8,8 @@ Assistente desktop Windows local-first per chat privata, voce, strumenti PC cont
 - Fase 1: shell UI, policy engine e simulatore azioni completati.
 - Fase 2: Ollama streaming, profili hardware, SQLite e installer Windows completati.
 - Fase 2.5: backend Rust fidato, cifratura Windows, audit HMAC e CSP completati.
-- Fase 3: prossima — push-to-talk, Whisper locale e Piper.
+- Fase 2.6: Ollama mediato dal backend, blocco modelli cloud e cifratura contestuale completati.
+- Fase 3: in corso — push-to-talk, Whisper locale, VAD e confidenza completati; Piper resta da fare.
 
 ## Installazione già configurata sul PC
 
@@ -16,6 +17,7 @@ Assistente desktop Windows local-first per chat privata, voce, strumenti PC cont
 - Ollama locale;
 - `qwen3:4b-instruct` come modello consigliato;
 - `qwen3:4b` come variante reasoning opzionale.
+- `whisper.cpp` 1.9.2 con modello multilingue `base` per la dettatura locale.
 
 ## Sviluppo
 
@@ -25,8 +27,9 @@ pnpm dev
 pnpm test
 pnpm build
 pnpm build:windows:debug
+./scripts/setup-whisper.ps1
 ```
 
-L'app usa `http://127.0.0.1:11434` e non invia le conversazioni a servizi cloud. In Tauri, la cronologia è cifrata in `aura.db`; la chiave principale è custodita dal Windows Credential Manager. L'anteprima web usa esclusivamente un fallback locale.
+Il backend Rust usa esclusivamente Ollama su `127.0.0.1:11434` e rifiuta modelli cloud, remoti o non GGUF. In Tauri, la cronologia è cifrata in `aura.db`; la chiave principale è custodita dal Windows Credential Manager. La voce viene convertita in WAV PCM locale e trascritta da `whisper.cpp`; la trascrizione resta una bozza finché l'utente non la invia. L'anteprima web usa esclusivamente un fallback locale.
 
-Documentazione: `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, `docs/HARDENING.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.
+Documentazione: `docs/ARCHITECTURE.md`, `docs/BACKLOG.md`, `docs/HARDENING.md`, `docs/VOICE.md`, `docs/REPOSITORY.md` e `project-spec.yaml`.

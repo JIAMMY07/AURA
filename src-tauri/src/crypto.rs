@@ -1,15 +1,17 @@
 use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit, OsRng},
+    aead::{Aead, AeadCore, KeyInit, OsRng, Payload},
     Aes256Gcm, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 const SERVICE: &str = "local.aura.assistant";
 const ACCOUNT: &str = "database-master-key-v1";
 
+#[derive(ZeroizeOnDrop)]
 pub struct Crypto {
     encryption_key: [u8; 32],
     audit_key: [u8; 32],
@@ -18,7 +20,7 @@ pub struct Crypto {
 impl Crypto {
     pub fn load_or_create() -> Result<Self, String> {
         let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(redact_error)?;
-        let master = match entry.get_password() {
+        let mut master = match entry.get_password() {
             Ok(encoded) => decode_master_key(&encoded)?,
             Err(keyring::Error::NoEntry) => {
                 let generated = Aes256Gcm::generate_key(&mut OsRng);
@@ -31,10 +33,12 @@ impl Crypto {
             }
             Err(error) => return Err(redact_error(error)),
         };
-        Self::from_master(master)
+        let result = Self::from_master(master);
+        master.zeroize();
+        result
     }
 
-    pub(crate) fn from_master(master: [u8; 32]) -> Result<Self, String> {
+    pub(crate) fn from_master(mut master: [u8; 32]) -> Result<Self, String> {
         let hkdf = Hkdf::<Sha256>::new(None, &master);
         let mut encryption_key = [0_u8; 32];
         let mut audit_key = [0_u8; 32];
@@ -42,27 +46,61 @@ impl Crypto {
             .map_err(|_| "Impossibile derivare la chiave di cifratura.".to_string())?;
         hkdf.expand(b"aura-audit-authentication-v1", &mut audit_key)
             .map_err(|_| "Impossibile derivare la chiave di audit.".to_string())?;
-        Ok(Self { encryption_key, audit_key })
+        master.zeroize();
+        Ok(Self {
+            encryption_key,
+            audit_key,
+        })
     }
 
+    #[cfg(test)]
     pub fn encrypt(&self, plaintext: &str) -> Result<(Vec<u8>, Vec<u8>), String> {
+        self.encrypt_with_aad(plaintext, &[])
+    }
+
+    pub fn encrypt_with_aad(
+        &self,
+        plaintext: &str,
+        aad: &[u8],
+    ) -> Result<(Vec<u8>, Vec<u8>), String> {
         let cipher = Aes256Gcm::new_from_slice(&self.encryption_key)
             .map_err(|_| "Chiave di cifratura non valida.".to_string())?;
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
         let ciphertext = cipher
-            .encrypt(&nonce, plaintext.as_bytes())
+            .encrypt(
+                &nonce,
+                Payload {
+                    msg: plaintext.as_bytes(),
+                    aad,
+                },
+            )
             .map_err(|_| "Cifratura del messaggio fallita.".to_string())?;
         Ok((ciphertext, nonce.to_vec()))
     }
 
     pub fn decrypt(&self, ciphertext: &[u8], nonce: &[u8]) -> Result<String, String> {
+        self.decrypt_with_aad(ciphertext, nonce, &[])
+    }
+
+    pub fn decrypt_with_aad(
+        &self,
+        ciphertext: &[u8],
+        nonce: &[u8],
+        aad: &[u8],
+    ) -> Result<String, String> {
         if nonce.len() != 12 {
             return Err("Nonce cifrato non valido.".to_string());
         }
         let cipher = Aes256Gcm::new_from_slice(&self.encryption_key)
             .map_err(|_| "Chiave di cifratura non valida.".to_string())?;
         let plaintext = cipher
-            .decrypt(Nonce::from_slice(nonce), ciphertext)
+            .decrypt(
+                Nonce::from_slice(nonce),
+                Payload {
+                    msg: ciphertext,
+                    aad,
+                },
+            )
             .map_err(|_| "Messaggio cifrato non autenticabile.".to_string())?;
         String::from_utf8(plaintext).map_err(|_| "Messaggio cifrato non UTF-8.".to_string())
     }
@@ -75,8 +113,12 @@ impl Crypto {
     }
 
     pub fn verify_hmac_hex(&self, data: &[u8], encoded: &str) -> bool {
-        let Ok(expected) = hex::decode(encoded) else { return false };
-        let Ok(mut mac) = <Hmac<Sha256> as Mac>::new_from_slice(&self.audit_key) else { return false };
+        let Ok(expected) = hex::decode(encoded) else {
+            return false;
+        };
+        let Ok(mut mac) = <Hmac<Sha256> as Mac>::new_from_slice(&self.audit_key) else {
+            return false;
+        };
         mac.update(data);
         mac.verify_slice(&expected).is_ok()
     }
@@ -104,7 +146,10 @@ mod tests {
         let crypto = Crypto::from_master([7_u8; 32]).expect("valid test key");
         let (ciphertext, nonce) = crypto.encrypt("segreto locale").expect("encrypt");
         assert_ne!(ciphertext, b"segreto locale");
-        assert_eq!(crypto.decrypt(&ciphertext, &nonce).expect("decrypt"), "segreto locale");
+        assert_eq!(
+            crypto.decrypt(&ciphertext, &nonce).expect("decrypt"),
+            "segreto locale"
+        );
     }
 
     #[test]
@@ -113,6 +158,23 @@ mod tests {
         let (mut ciphertext, nonce) = crypto.encrypt("segreto").expect("encrypt");
         ciphertext[0] ^= 1;
         assert!(crypto.decrypt(&ciphertext, &nonce).is_err());
+    }
+
+    #[test]
+    fn binds_ciphertext_to_authenticated_metadata() {
+        let crypto = Crypto::from_master([10_u8; 32]).expect("valid test key");
+        let (ciphertext, nonce) = crypto
+            .encrypt_with_aad("contenuto", b"message-1|user")
+            .expect("encrypt");
+        assert_eq!(
+            crypto
+                .decrypt_with_aad(&ciphertext, &nonce, b"message-1|user")
+                .expect("decrypt"),
+            "contenuto"
+        );
+        assert!(crypto
+            .decrypt_with_aad(&ciphertext, &nonce, b"message-2|assistant")
+            .is_err());
     }
 
     #[test]

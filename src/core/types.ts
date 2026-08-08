@@ -12,5 +12,6 @@ export interface ActionPlan {
 
 export interface PolicyResult {
   decision: Decision;
+  risk: Risk;
   reason: string;
 }

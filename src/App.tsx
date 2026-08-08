@@ -9,6 +9,7 @@ import { evaluate } from './core/policyEngine';
 import type { ActionPlan, PolicyResult, Risk } from './core/types';
 import { createConversationStore, type StorageMode } from './services/conversationStore';
 import { evaluateAction, verifyAudit, type AuditStatus } from './adapters/security';
+import { getVoiceStatus, transcribeVoice, VoiceRecorder, type VoiceStatus } from './adapters/voice';
 
 const client = new OllamaClient();
 const conversationStore = createConversationStore();
@@ -42,7 +43,15 @@ export function App() {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState('');
   const [tokensPerSecond, setTokensPerSecond] = useState<number>();
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>();
+  const [voiceRecording, setVoiceRecording] = useState(false);
+  const [voiceProcessing, setVoiceProcessing] = useState(false);
+  const [voiceNotice, setVoiceNotice] = useState('');
   const abortRef = useRef<AbortController | undefined>(undefined);
+  const streamBufferRef = useRef('');
+  const streamFlushRef = useRef<number | undefined>(undefined);
+  const recorderRef = useRef<VoiceRecorder | undefined>(undefined);
+  const voiceTimeoutRef = useRef<number | undefined>(undefined);
   const profile = RESOURCE_PROFILES[profileName];
 
   const plan: ActionPlan = useMemo(() => ({
@@ -81,6 +90,7 @@ export function App() {
   }
 
   useEffect(() => { void refreshOllama(); }, []);
+  useEffect(() => { void getVoiceStatus().then(setVoiceStatus).catch(() => undefined); }, []);
   useEffect(() => {
     let active = true;
     void evaluateAction(plan)
@@ -89,7 +99,7 @@ export function App() {
         setResult(decision);
         return verifyAudit().then(status => { if (active) setAuditStatus(status); });
       })
-      .catch(() => { if (active) setResult({ decision: 'deny', reason: 'Policy backend non disponibile.' }); });
+      .catch(() => { if (active) setResult({ decision: 'deny', risk: 'critical', reason: 'Policy backend non disponibile.' }); });
     return () => { active = false; };
   }, [plan]);
   useEffect(() => {
@@ -137,6 +147,7 @@ export function App() {
     setTokensPerSecond(undefined);
     const controller = new AbortController();
     abortRef.current = controller;
+    streamBufferRef.current = '';
     const generationTimeout = window.setTimeout(() => controller.abort(), 180_000);
 
     try {
@@ -144,15 +155,14 @@ export function App() {
         selectedModel,
         history,
         profile,
-        token => setMessages(current => current.map(message =>
-          message.id === assistantMessage.id
-            ? { ...message, content: message.content + token }
-            : message
-        )),
+        assistantMessage.id,
+        token => queueStreamToken(assistantMessage.id, token),
         controller.signal
       );
+      flushStreamTokens(assistantMessage.id);
       setTokensPerSecond(stream.tokensPerSecond);
     } catch (cause) {
+      flushStreamTokens(assistantMessage.id);
       if (cause instanceof DOMException && cause.name === 'AbortError') {
         setError('Generazione interrotta. La risposta parziale è stata conservata.');
       } else {
@@ -162,10 +172,28 @@ export function App() {
         ));
       }
     } finally {
+      flushStreamTokens(assistantMessage.id);
       window.clearTimeout(generationTimeout);
       abortRef.current = undefined;
       setStreaming(false);
     }
+  }
+
+  function queueStreamToken(messageId: string, token: string) {
+    streamBufferRef.current += token;
+    if (streamFlushRef.current) return;
+    streamFlushRef.current = window.setTimeout(() => flushStreamTokens(messageId), 40);
+  }
+
+  function flushStreamTokens(messageId: string) {
+    if (streamFlushRef.current) window.clearTimeout(streamFlushRef.current);
+    streamFlushRef.current = undefined;
+    const pending = streamBufferRef.current;
+    streamBufferRef.current = '';
+    if (!pending) return;
+    setMessages(current => current.map(message =>
+      message.id === messageId ? { ...message, content: message.content + pending } : message
+    ));
   }
 
   async function resetConversation() {
@@ -178,6 +206,43 @@ export function App() {
     }
     setMessages([]);
     setError('');
+  }
+
+  async function startVoiceRecording() {
+    if (!voiceStatus?.available || voiceRecording || voiceProcessing) return;
+    setError('');
+    setVoiceNotice('');
+    const recorder = new VoiceRecorder();
+    try {
+      await recorder.start();
+      recorderRef.current = recorder;
+      setVoiceRecording(true);
+      voiceTimeoutRef.current = window.setTimeout(() => { void finishVoiceRecording(); }, voiceStatus.maxSeconds * 1000);
+    } catch {
+      setError('Microfono non disponibile o autorizzazione negata da Windows.');
+    }
+  }
+
+  async function finishVoiceRecording() {
+    const recorder = recorderRef.current;
+    if (!recorder) return;
+    recorderRef.current = undefined;
+    if (voiceTimeoutRef.current) window.clearTimeout(voiceTimeoutRef.current);
+    voiceTimeoutRef.current = undefined;
+    setVoiceRecording(false);
+    setVoiceProcessing(true);
+    setError('');
+    try {
+      const wav = await recorder.stop();
+      const transcript = await transcribeVoice(wav);
+      setDraft(transcript.text);
+      const confidence = Math.round(transcript.confidence * 100);
+      setVoiceNotice(`Trascrizione locale pronta (${transcript.durationSeconds.toFixed(1)} s, confidenza ${confidence}%). ${confidence < 70 ? 'Confidenza bassa: rileggila con particolare attenzione.' : 'Controllala prima di inviarla.'}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setVoiceProcessing(false);
+    }
   }
 
   return <div className="app">
@@ -220,7 +285,7 @@ export function App() {
         {!messages.length && <div className="empty-chat">
           <div className="orb"><Mic /></div>
           <p>Chat locale pronta</p>
-          <small>Push-to-talk arriverà nella Fase 3. Il microfono non è in ascolto.</small>
+          <small>{voiceStatus?.available ? 'Push-to-talk locale pronto. La trascrizione non viene inviata automaticamente.' : 'Motore vocale locale non disponibile.'}</small>
         </div>}
         {messages.map(message => <article key={message.id} className={`message ${message.role}`}>
           <span>{message.role === 'user' ? 'Tu' : 'AURA'}</span>
@@ -229,6 +294,9 @@ export function App() {
       </section>
 
       {error && <div className="error-banner">{error}</div>}
+      {voiceRecording && <div className="voice-banner"><span /> Microfono attivo — premi di nuovo per terminare</div>}
+      {voiceProcessing && <div className="voice-banner processing"><RefreshCw /> Trascrizione locale in corso…</div>}
+      {voiceNotice && <div className="voice-notice">{voiceNotice}</div>}
       <form className="composer" onSubmit={sendMessage}>
         <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Scrivi un comando o una domanda…" rows={2} onKeyDown={event => {
           if (event.key === 'Enter' && !event.shiftKey) {
@@ -236,6 +304,14 @@ export function App() {
             event.currentTarget.form?.requestSubmit();
           }
         }} />
+        <button
+          type="button"
+          className={`voice-button ${voiceRecording ? 'recording' : ''}`}
+          onClick={() => voiceRecording ? void finishVoiceRecording() : void startVoiceRecording()}
+          disabled={!voiceStatus?.available || voiceProcessing || streaming}
+          title={voiceStatus?.available ? (voiceRecording ? 'Termina registrazione' : 'Avvia push-to-talk') : 'Motore vocale locale non installato'}
+          aria-label={voiceRecording ? 'Termina registrazione vocale' : 'Avvia registrazione vocale'}
+        ><Mic /></button>
         {streaming
           ? <button type="button" className="stop" onClick={() => abortRef.current?.abort()}><CircleStop /> Stop</button>
           : <button type="submit" disabled={!draft.trim()}><Send /> Invia</button>}
@@ -246,7 +322,7 @@ export function App() {
         <summary>Laboratorio policy — simula un’azione</summary>
         <div className="actions">{demos.map((demo, index) => <button key={demo.label} onClick={() => setSelectedAction(index)} className={index === selectedAction ? 'chosen' : ''}>{demo.label}</button>)}</div>
         <div className="plan">
-          <div><span className={`badge ${plan.risk}`}>{plan.risk}</span><h2>{plan.summary}</h2><p>Capability: {plan.capability} · Scope: {plan.scope}</p></div>
+          <div><span className={`badge ${result.risk}`}>{result.risk}</span><h2>{plan.summary}</h2><p>Capability: {plan.capability} · Scope: {plan.scope}</p></div>
           <div className={`decision ${result.decision}`}><strong>{result.decision.toUpperCase()}</strong><span>{result.reason}</span></div>
         </div>
       </details>

@@ -1,3 +1,4 @@
+import { Channel, invoke, isTauri } from '@tauri-apps/api/core';
 import type { ResourceProfile } from '../core/modelProfiles';
 
 export type ChatRole = 'system' | 'user' | 'assistant';
@@ -29,6 +30,11 @@ interface ChatChunk {
   eval_count?: number;
   eval_duration?: number;
   error?: string;
+}
+
+interface BackendStreamEvent {
+  event: 'token';
+  data: { token: string };
 }
 
 export interface StreamResult {
@@ -73,6 +79,7 @@ export class OllamaClient {
   constructor(private readonly baseUrl = DEFAULT_BASE_URL) {}
 
   async health(signal?: AbortSignal): Promise<boolean> {
+    if (isTauri()) return invoke<boolean>('ollama_health');
     try {
       const response = await fetch(`${this.baseUrl}/api/tags`, { signal });
       return response.ok;
@@ -82,6 +89,7 @@ export class OllamaClient {
   }
 
   async listModels(signal?: AbortSignal): Promise<OllamaModel[]> {
+    if (isTauri()) return invoke<OllamaModel[]>('ollama_list_models');
     const response = await fetch(`${this.baseUrl}/api/tags`, { signal });
     if (!response.ok) throw new Error(`Ollama non disponibile (${response.status})`);
     const payload = await response.json() as TagsResponse;
@@ -89,6 +97,60 @@ export class OllamaClient {
   }
 
   async chat(
+    model: string,
+    messages: ChatMessage[],
+    profile: ResourceProfile,
+    requestId: string,
+    onToken: (token: string) => void,
+    signal?: AbortSignal
+  ): Promise<StreamResult> {
+    if (isTauri()) {
+      return this.chatThroughBackend(model, messages, profile, requestId, onToken, signal);
+    }
+    return this.chatThroughWeb(model, messages, profile, onToken, signal);
+  }
+
+  private async chatThroughBackend(
+    model: string,
+    messages: ChatMessage[],
+    profile: ResourceProfile,
+    requestId: string,
+    onToken: (token: string) => void,
+    signal?: AbortSignal
+  ): Promise<StreamResult> {
+    const onEvent = new Channel<BackendStreamEvent>();
+    let text = '';
+    onEvent.onmessage = message => {
+      if (message.event === 'token' && message.data.token) {
+        text += message.data.token;
+        onToken(message.data.token);
+      }
+    };
+    const cancel = () => { void invoke('ollama_cancel', { requestId }); };
+    signal?.addEventListener('abort', cancel, { once: true });
+    try {
+      const result = await invoke<{ tokensPerSecond?: number; doneReason?: string }>('ollama_chat', {
+        request: {
+          requestId,
+          model,
+          messages: trimMessagesForContext(messages, profile).map(({ role, content }) => ({ role, content })),
+          profile: profile.name
+        },
+        onEvent
+      });
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      return { text, ...result };
+    } catch (cause) {
+      if (signal?.aborted || cause === 'Generazione annullata.') {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      throw cause instanceof Error ? cause : new Error(String(cause));
+    } finally {
+      signal?.removeEventListener('abort', cancel);
+    }
+  }
+
+  private async chatThroughWeb(
     model: string,
     messages: ChatMessage[],
     profile: ResourceProfile,

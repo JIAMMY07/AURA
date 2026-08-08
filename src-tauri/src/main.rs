@@ -19,6 +19,12 @@ fn main() {
             commands::storage::storage_clear,
             commands::policy::policy_evaluate,
             commands::audit::audit_verify,
+            commands::ollama::ollama_health,
+            commands::ollama::ollama_list_models,
+            commands::ollama::ollama_chat,
+            commands::ollama::ollama_cancel,
+            commands::voice::voice_status,
+            commands::voice::voice_transcribe,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Local AI Assistant");

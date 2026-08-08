@@ -15,8 +15,7 @@ export async function evaluateAction(action: ActionPlan): Promise<PolicyResult> 
       id: action.id,
       capability: action.capability,
       summary: action.summary,
-      scope: action.scope,
-      reversible: action.reversible
+      scope: action.scope
     }
   });
 }

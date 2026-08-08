@@ -45,10 +45,24 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 
 **Uscita:** la WebView non può scrivere SQL; dati locali e audit superano test di alterazione. Restano obbligatori approval token e runner isolato prima di introdurre azioni PC.
 
-## Fase 3 — Voce locale
+## Fase 2.6 — Hardening locale avanzato (completata)
 
-- [ ] Acquisizione microfono push-to-talk e indicatore evidente.
-- [ ] Whisper locale con VAD, lingua italiana e punteggio di confidenza.
+- [x] Ollama spostato dietro comandi Rust e streaming Tauri Channel.
+- [x] CSP senza accesso HTTP diretto dalla WebView.
+- [x] Rifiuto backend di modelli cloud, remoti, vuoti o non GGUF.
+- [x] Policy indipendente dalla reversibilità dichiarata dal frontend.
+- [x] Cifratura messaggi v2 con AAD per ID, sessione, ruolo, data e versione.
+- [x] Migrazione cifrata v0/v1, `secure_delete`, checkpoint WAL e compattazione.
+- [x] Sigillatura una tantum degli audit legacy e riduzione dei dati sensibili nell'audit.
+- [x] Buffer streaming UI per ridurre i rendering per token.
+
+**Uscita:** la WebView non può raggiungere direttamente Ollama; un ciphertext spostato fra righe non è autenticabile; il frontend non può dichiarare un'azione reversibile. Approval token e runner restano gate obbligatori della Fase 4.
+
+## Fase 3 — Voce locale (in corso)
+
+- [x] Acquisizione microfono push-to-talk, limite 30 secondi e indicatore evidente.
+- [x] Whisper locale multilingue con lingua italiana forzata, Silero VAD e confidenza media token.
+- [x] Trascrizione depositata come bozza, mai inviata o eseguita automaticamente.
 - [ ] Piper locale con interruzione immediata della sintesi.
 - [ ] Conferma obbligatoria se la trascrizione sensibile è ambigua.
 
