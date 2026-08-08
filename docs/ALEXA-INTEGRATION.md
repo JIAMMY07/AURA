@@ -4,6 +4,8 @@
 
 AURA è predisposta per ricevere in futuro comandi vocali da un plugin Alexa senza esporre una porta di rete sul PC. Il componente Alexa e il relay remoto non ricevono accesso generale a Windows: possono inviare esclusivamente intenti appartenenti a una allowlist. Ogni intento viene nuovamente valutato dai guardrail locali di AURA.
 
+Il flusso obbligatorio è **Alexa → AURA → PC**. È vietata qualsiasi architettura **Alexa → PC → AURA** o Alexa → PC: Alexa non deve conoscere endpoint Windows, credenziali del PC, comandi di sistema, percorsi locali o API native. Il relay consegna soltanto una richiesta firmata ad AURA; AURA è l'unico componente autorizzato a decidere se trasformarla in un'azione sul PC.
+
 Il supporto attuale implementa associazione, conservazione cifrata del segreto, autenticazione delle richieste, protezione anti-replay, scadenza e classificazione delle policy. Il futuro plugin Alexa e il relay HTTPS non fanno parte di questa versione.
 
 ## Architettura prevista
@@ -19,8 +21,16 @@ Relay HTTPS autenticato
    ^
    | polling HTTPS in uscita; nessuna porta aperta sul PC
    |
-AURA desktop -> verifica HMAC -> anti-replay -> policy locale -> eventuale conferma -> azione
+AURA desktop -> verifica HMAC -> anti-replay -> policy locale -> eventuale conferma -> adapter PC
 ```
+
+Responsabilità obbligatorie:
+
+1. Alexa raccoglie la voce e produce un intento remoto limitato.
+2. Il relay trasporta l'intento firmato senza interpretarlo come comando Windows.
+3. AURA autentica, valida, applica policy e chiede eventuali conferme.
+4. Soltanto un adapter locale di AURA può richiamare una funzione tipizzata del PC.
+5. L'esito ritorna lungo il percorso inverso: PC → AURA → relay → Alexa.
 
 Il client desktop dovrà contattare il relay soltanto tramite HTTPS pubblico. Il relay non deve poter iniziare una connessione verso il PC. Timeout, backoff con jitter e un limite di richieste devono essere applicati dal futuro trasporto.
 
@@ -101,6 +111,8 @@ Il verificatore attuale autentica e classifica la richiesta, ma non esegue ancor
 4. applicare conferma locale o challenge aggiuntiva per azioni mutanti;
 5. produrre una risposta breve e priva di dati personali per Alexa;
 6. registrare esito, latenza e policy senza contenuti sensibili.
+
+Il dispatcher deve risiedere nel processo fidato di AURA. Non deve essere implementato nel plugin Alexa, nel relay o come servizio Windows direttamente raggiungibile dal relay.
 
 La conferma locale non deve essere sostituita da frasi generiche udibili nella stanza. Per operazioni più sensibili si può aggiungere un PIN vocale temporaneo, una conferma nell'app o Windows Hello; il PIN permanente non deve essere pronunciato né registrato.
 

@@ -57,6 +57,7 @@ export function RemoteAccessPanel() {
   return <details className="personalization remote-access">
     <summary><Mic /> Controllo vocale remoto Alexa</summary>
     <p className="section-help">
+      Flusso obbligatorio: Alexa → AURA → PC. Alexa invia soltanto intenti firmati ad AURA e non accede mai direttamente a Windows.
       Collegamento predisposto tramite richieste HTTPS in uscita: AURA non apre porte sul PC.
       Firma HMAC, scadenza, nonce anti-replay e allowlist impediscono al plugin remoto di aggirare i guardrail locali.
     </p>
