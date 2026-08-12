@@ -15,10 +15,21 @@ La suite è dimensionata per AMD Ryzen 7 5700X, 48 GiB di RAM e NVIDIA RTX 2060 
 
 Whisper non è un modello Ollama; la trascrizione usa `whisper.cpp` e la sintesi usa Windows SAPI con voce italiana.
 
+## Modelli AURA visibili all'utente
+
+| Nome | Velocità | Potenza | Contesto | Motore generale preferito |
+| --- | --- | --- | ---: | --- |
+| **Luna** | Massima | Essenziale | 4k | `qwen3:4b-instruct`, con fallback leggero |
+| **Terra** | Bilanciata | Elevata | 8k | `aura:4b`, profilo predefinito |
+| **Sole** | Ridotta | Massima | 12k | `qwen3:4b` reasoning, senza scadenza complessiva e con fallback AURA |
+
+I tre nomi sono profili operativi, non falsi nomi dei pesi sottostanti. L'interfaccia mostra anche il motore Ollama effettivo per trasparenza. Coding, Guardian, embedding e visione restano specialisti interni e vengono selezionati soltanto quando servono.
+
 ## Regole di esecuzione
 
 - Caricare un solo modello GPU pesante alla volta.
-- Usare il profilo `Bilanciato` e 8192 token di contesto come default.
+- Usare `Terra` come profilo predefinito; `Luna` privilegia la velocità e `Sole` usa fino a 12288 token di contesto.
+- `Sole` non applica un timeout complessivo alla richiesta o allo stream. Il timeout di connessione iniziale resta attivo, il limite di output resta 2048 token e il pulsante **Stop** controlla l'annullamento almeno ogni 200 ms anche quando Ollama non produce token.
 - Attivare `think` solo per modelli che dichiarano la capacità `thinking`; il backend non inoltra la catena interna all'interfaccia.
 - Conservare i modelli interattivi per pochi minuti; il coder Evolution usa CPU e `keep_alive: 5m` per evitare reload concorrenti del runner.
 - Non mostrare i modelli con sola capacità `embedding` nel selettore della chat.

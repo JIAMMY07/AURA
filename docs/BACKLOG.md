@@ -13,7 +13,9 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 ## Fase 1 — Shell UI e policy (completata)
 
 - [x] Dashboard desktop responsive con navigazione e stato risorse.
-- [x] Profili Leggero/Bilanciato/Qualità.
+- [x] Profili Luna/Terra/Sole con potenza e velocità progressive.
+- [x] Progetti e chat multiple cifrate con migrazione della cronologia esistente.
+- [x] Esportazione PDF locale con impaginazione, metadati, numerazione e audit senza contenuti.
 - [x] Policy engine `allow/confirm/sandbox/deny`.
 - [x] Simulatore di richieste e anteprima decisione.
 - [x] Test dei percorsi allow, sandbox e deny.
@@ -63,7 +65,7 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 - [x] Acquisizione microfono push-to-talk, limite 30 secondi e indicatore evidente.
 - [x] Whisper locale multilingue con lingua italiana forzata, Silero VAD e confidenza media token.
 - [x] Trascrizione in bozza e invio automatico opzionale solo con confidenza almeno 70%.
-- [x] Selezione microfono, preferenza OPPO, hot-plug Bluetooth e ricampionamento 8/16/48 kHz.
+- [x] Selezione universale degli ingressi, preferenza utente, microfono predefinito Windows, hot-plug e ricampionamento 8/16/48 kHz.
 - [x] Diagnostica livello audio, cleanup su errore e singolo worker Whisper.
 - [x] TTS italiano locale Windows SAPI con interruzione immediata; Piper resta alternativa opzionale.
 - [x] Conferma nativa obbligatoria per ogni azione PC mutante, indipendente dalla trascrizione.
@@ -76,13 +78,26 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 - [x] Registro tipizzato: metriche, processi, dieci destinazioni Windows, terminazione PID protetta e blocco sessione.
 - [x] Centro controllo PC nella UI e grammatica vocale deterministica.
 - [x] Comandi locali deterministici e nessuna shell generata dal modello.
-- [ ] Note e ricerca file in radici esplicite.
-- [ ] Radici leggibili/scrivibili esplicite e path canonicalization.
-- [ ] Dry-run, timeout, annullamento, circuit breaker e rollback.
-- [ ] Processi figli senza privilegi amministrativi e output limitato.
-- [ ] Approval UI con effetto, dati, destinazione e durata permesso.
+- [x] Lettura, editor UTF-8 e ricerca file in radici esplicite.
+- [x] Radici cifrate, revocabili, canonicalization, blocco traversal/symlink/junction e radici sensibili.
+- [x] Scrittura atomica con rollback, copia/spostamento senza overwrite implicito e Cestino Windows.
+- [x] Catalogo applicazioni del Menu Start con ID HMAC e nessun eseguibile/argomento arbitrario.
+- [x] Conferma nativa per grant, write, move, open, delete e lancio applicazioni.
+- [ ] Runner comandi generici isolato con timeout, annullamento, output limitato e processi non elevati.
+- [ ] Planner multi-step con dry-run complessivo, rollback transazionale e approvazione del piano.
 
-**Uscita:** suite di abuso su traversal, injection, symlink e race; kill switch verificato.
+**Uscita:** controllo file e applicazioni installate operativo entro scope autorizzati; shell e codice restano confinati al runner sandbox.
+
+## Fase 4.5 — Visione locale (rilevamento operativo)
+
+- [x] Selezione videocamera e consenso esplicito Windows/WebView2.
+- [x] Landmark facciali, mani e gesti tramite MediaPipe locale.
+- [x] Modelli e runtime WASM locali con verifica SHA-256 in build.
+- [x] Limite di frequenza, rilascio risorse e stato videocamera sempre visibile.
+- [x] Nessuna conservazione dei frame e nessuna azione PC automatica dai gesti.
+- [ ] Enrollment biometrico cifrato, liveness e cancellazione verificabile prima dell'identificazione personale.
+
+**Uscita:** rilevamento locale di mani e volto utilizzabile senza cloud; l'identificazione della persona resta esplicitamente fuori dallo scope corrente.
 
 ## Fase 5 — Documenti e memoria RAG
 
@@ -95,7 +110,8 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 
 ## Fase 6 — Ricerca web e browser isolato
 
-- [ ] Browser con profilo separato, download in quarantena e rete osservabile.
+- [x] Browser con profilo WebView2 distinto per sessione, blocco nativo dei download, quarantena inerte con SHA-256 e rete HTTPS pubblica osservabile.
+- [x] Agente browser goal-driven a passi limitati, DOM revalidato, schema JSON rigido, massimo quattro host e takeover immediato.
 - [ ] Ricerca multi-fonte con URL, data, deduplica e limiti configurabili.
 - [ ] Takeover manuale immediato; pausa completa dell'agente durante il controllo umano.
 - [ ] Accesso esteso esplicito, temporaneo, revocabile e visibile.
@@ -120,9 +136,12 @@ Ogni fase deve terminare con test automatici, prova manuale del caso principale,
 - [x] Rilevamento fail-closed: WSL richiede una distribuzione operativa; Docker/Podman devono rispondere entro il timeout.
 - [x] Generazione patch Ollama, runner WSL+bubblewrap e promozione manuale collegati al backend/UI.
 - [x] Quote CPU/RAM/processi/file descriptor/dimensione file e profili test allowlistati.
+- [x] Ispezione diff prima dell'esecuzione: capability, file, dipendenze, indicatori sensibili e hash approvato.
+- [x] Retry limitato a tre con invalidazione dell'approvazione e rollback del branch su apply fallita.
+- [x] Attestazione sandbox, inventario licenze e scansione statica; dipendenze immutabili e rete disattivata.
 - [ ] SDK plugin, template firmato e API di capacità ristrette.
 - [ ] Sandbox usa-e-getta/Windows Sandbox o VM con snapshot.
-- [ ] SBOM, scansione dipendenze/licenze, test e report dei diff.
+- [ ] SBOM CycloneDX completo e scanner CVE offline aggiornabile con provenienza firmata.
 - [x] Promozione manuale su branch di revisione, hash SHA-256, worktree pulito e nessun commit automatico.
 - [ ] Canary, monitoraggio e rollback automatico dopo la revisione.
 

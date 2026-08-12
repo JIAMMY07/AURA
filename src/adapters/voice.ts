@@ -94,10 +94,9 @@ export function choosePreferredVoiceInput(
     if (sameLabel) return sameLabel;
   }
 
-  const ranked = devices
-    .map((device, index) => ({ device, index, score: voiceDeviceScore(device.label) }))
-    .sort((left, right) => right.score - left.score || left.index - right.index);
-  if (ranked[0].score > 0) return ranked[0].device;
+  // Senza una scelta valida dell'utente, rispetta sempre l'endpoint predefinito
+  // di Windows. In questo modo AURA funziona con microfoni USB, integrati,
+  // Bluetooth, webcam, dock e schede audio senza preferire una marca specifica.
   return devices.find(device => device.deviceId === 'default') ?? devices[0];
 }
 
@@ -110,10 +109,10 @@ export function describeMicrophoneError(cause: unknown): string {
     case 'SecurityError':
       return 'Accesso al microfono negato. Abilita AURA in Impostazioni Windows > Privacy e sicurezza > Microfono.';
     case 'NotFoundError':
-      return 'Nessun microfono attivo. Connetti le cuffie OPPO e verifica il profilo vivavoce.';
+      return 'Nessun microfono attivo. Collega o abilita un microfono nelle impostazioni audio di Windows.';
     case 'NotReadableError':
     case 'AbortError':
-      return 'Il microfono è occupato, disconnesso o non leggibile. Chiudi le altre app audio e riconnetti le cuffie.';
+      return 'Il microfono è occupato, disconnesso o non leggibile. Chiudi le altre app audio oppure seleziona un altro ingresso.';
     case 'OverconstrainedError':
       return 'Il microfono selezionato non è più disponibile. Aggiorna l’elenco dei dispositivi.';
     default:
@@ -305,15 +304,6 @@ function writeAscii(target: Uint8Array, offset: number, value: string) {
 
 function normalizeDeviceLabel(label: string): string {
   return label.toLocaleLowerCase().replace(/\s+/g, ' ').trim();
-}
-
-function voiceDeviceScore(label: string): number {
-  const normalized = normalizeDeviceLabel(label);
-  let score = 0;
-  if (normalized.includes('oppo')) score += 100;
-  if (normalized.includes('hands-free') || normalized.includes('headset') || normalized.includes('vivavoce')) score += 25;
-  if (normalized.includes('microphone') || normalized.includes('microfono')) score += 5;
-  return score;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {

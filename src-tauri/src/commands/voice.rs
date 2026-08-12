@@ -130,6 +130,21 @@ fn validate_tts_text(text: &str) -> Result<&str, String> {
 #[tauri::command]
 pub fn voice_stop_speaking(state: State<'_, AppState>) -> Result<bool, String> {
     enforce_capability("voice.speak", "allow")?;
+    let stopped = stop_tts_unchecked(&state)?;
+    if stopped {
+        append_audit(
+            &state,
+            &Uuid::new_v4().to_string(),
+            "voice.tts.stopped",
+            "allow",
+            "Sintesi vocale locale arrestata",
+            r#"{"contentLogged":false}"#,
+        )?;
+    }
+    Ok(stopped)
+}
+
+pub(crate) fn stop_tts_unchecked(state: &AppState) -> Result<bool, String> {
     let mut active = state
         .tts_process
         .lock()
@@ -139,14 +154,6 @@ pub fn voice_stop_speaking(state: State<'_, AppState>) -> Result<bool, String> {
     };
     let _ = child.kill();
     let _ = child.wait();
-    append_audit(
-        &state,
-        &Uuid::new_v4().to_string(),
-        "voice.tts.stopped",
-        "allow",
-        "Sintesi vocale locale arrestata",
-        r#"{"contentLogged":false}"#,
-    )?;
     Ok(true)
 }
 
@@ -284,6 +291,7 @@ fn run_whisper(paths: &VoicePaths, wav_path: &Path, output_prefix: &Path) -> Res
     let mut child = command
         .spawn()
         .map_err(|_| "Avvio motore vocale locale fallito.".to_string())?;
+    let _registration = super::task_control::register_child(child.id());
     match child
         .wait_timeout(Duration::from_secs(90))
         .map_err(|_| "Attesa motore vocale fallita.".to_string())?

@@ -14,5 +14,9 @@ AURA può conservare informazioni fornite volontariamente dall'utente per adatta
 
 ## Adattamento utile
 
-Le correzioni recenti vengono recuperate localmente per evitare errori ripetuti. In futuro conviene aggiungere categorie, scadenza e un pannello di revisione/esportazione, così l'utente può vedere esattamente cosa l'assistente crede di sapere e correggerlo.
-
+Le sole correzioni esplicite vengono consolidate in snapshot cifrati e autenticati. Il
+contesto usa l'ultima versione, il pannello mostra numero di lezioni e versioni, e il
+heartbeat opzionale consolida ogni 30 minuti senza apprendere dalle risposte del modello.
+Il rollback richiede conferma nativa, elimina l'ultima versione e disattiva l'heartbeat
+per evitare che la versione appena rimossa venga ricreata subito. Restano utili categorie,
+scadenza e una vista di revisione/esportazione delle singole lezioni.

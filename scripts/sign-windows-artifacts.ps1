@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [switch]$CreateLocalCertificate,
+    [switch]$TrustLocalCertificate,
     [switch]$IncludeHistoricalArtifacts
 )
 
@@ -22,14 +23,19 @@ if (-not $certificate -and $CreateLocalCertificate) {
         -HashAlgorithm SHA256 `
         -KeyExportPolicy NonExportable `
         -NotAfter (Get-Date).AddYears(2)
-    $publicPath = Join-Path $env:LOCALAPPDATA 'AURA\signing\aura-local-code-signing.cer'
-    New-Item -ItemType Directory -Force -Path (Split-Path $publicPath) | Out-Null
-    Export-Certificate -Cert $certificate -FilePath $publicPath -Force | Out-Null
-    Import-Certificate -FilePath $publicPath -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
-    Import-Certificate -FilePath $publicPath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
 }
 if (-not $certificate) {
     throw 'Certificato di firma assente. Usa -CreateLocalCertificate oppure configura un certificato pubblico.'
+}
+
+# Verifica sempre i trust store: una vecchia esecuzione può aver creato il
+# certificato senza completare uno dei due import.
+$publicPath = Join-Path $env:LOCALAPPDATA 'AURA\signing\aura-local-code-signing.cer'
+New-Item -ItemType Directory -Force -Path (Split-Path $publicPath) | Out-Null
+Export-Certificate -Cert $certificate -FilePath $publicPath -Force | Out-Null
+foreach ($store in @('Cert:\CurrentUser\TrustedPublisher') + $(if ($TrustLocalCertificate) { 'Cert:\CurrentUser\Root' })) {
+    $trusted = Get-ChildItem $store | Where-Object Thumbprint -eq $certificate.Thumbprint
+    if (-not $trusted) { Import-Certificate -FilePath $publicPath -CertStoreLocation $store | Out-Null }
 }
 
 $roots = if ($IncludeHistoricalArtifacts) {

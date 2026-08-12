@@ -18,7 +18,8 @@ hkdf = "0.12"
 hmac = "0.12"
 keyring = { version = "3", default-features = false, features = ["windows-native"] }
 futures-util = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 pdf-extract = "0.12"
 quick-xml = "0.41"
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -26,9 +27,11 @@ sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 wait-timeout = "0.2"
 sysinfo = "0.39"
-windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_System_Shutdown"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_System_Shutdown"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 zip = { version = "6", default-features = false, features = ["deflate"] }
+tokio = { version = "1", features = ["macros", "time"] }
+trash = "5"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

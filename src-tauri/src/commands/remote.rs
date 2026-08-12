@@ -1,6 +1,6 @@
 use super::{
     audit::append_audit,
-    browser::validate_public_https,
+    browser::{resolve_public_https, validate_public_https},
     pc::confirm_native_action,
     policy::enforce_capability,
     storage::{redact_db, AppState},
@@ -14,9 +14,10 @@ use hmac::{Hmac, Mac};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::State;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 const PAIRING_AAD: &[u8] = b"aura-remote-pairing-v1|default";
 const CLOCK_SKEW_SECONDS: i64 = 120;
@@ -65,6 +66,14 @@ pub struct VerifiedRemoteCommand {
     policy: &'static str,
     executable: bool,
     reason: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemotePollResult {
+    received: bool,
+    command: Option<VerifiedRemoteCommand>,
+    outcome: String,
 }
 
 #[tauri::command]
@@ -195,6 +204,13 @@ pub fn remote_verify_envelope(
     state: State<'_, AppState>,
 ) -> Result<VerifiedRemoteCommand, String> {
     enforce_capability("remote.command", "confirm")?;
+    verify_remote_envelope(envelope, &state)
+}
+
+fn verify_remote_envelope(
+    envelope: RemoteEnvelope,
+    state: &AppState,
+) -> Result<VerifiedRemoteCommand, String> {
     validate_envelope_shape(&envelope)?;
     let now = unix_now()?;
     if now.abs_diff(envelope.issued_at) > CLOCK_SKEW_SECONDS as u64 {
@@ -249,9 +265,23 @@ pub fn remote_verify_envelope(
         .map_err(|_| "Replay remoto rilevato: nonce già utilizzato.".to_string())?;
     }
     append_audit(
-        &state, &envelope.id, "remote.verified", policy,
+        state, &envelope.id, "remote.verified", policy,
         "Comando Alexa autenticato; esecuzione non ancora concessa",
         &serde_json::json!({"command":envelope.command,"payloadLogged":false,"remoteDoesNotBypassPolicy":true}).to_string(),
+    )?;
+    super::audit::append_interaction_audit(
+        state,
+        &envelope.id,
+        "alexa",
+        &envelope.command,
+        &envelope.payload_json,
+        policy,
+        serde_json::json!({
+            "authenticated": true,
+            "remoteDoesNotBypassPolicy": true,
+            "signatureLogged": false,
+            "nonceLogged": false
+        }),
     )?;
     Ok(VerifiedRemoteCommand {
         id: envelope.id,
@@ -264,6 +294,101 @@ pub fn remote_verify_envelope(
         } else {
             "Conferma locale o challenge vocale aggiuntiva richiesta."
         },
+    })
+}
+
+#[tauri::command]
+pub async fn remote_poll_once(state: State<'_, AppState>) -> Result<RemotePollResult, String> {
+    enforce_capability("remote.poll", "allow")?;
+    let (relay_url, secret_cipher, secret_nonce, enabled) = {
+        let db = state
+            .database
+            .lock()
+            .map_err(|_| "Database occupato.".to_string())?;
+        db.query_row(
+            "SELECT relay_url,secret_cipher,secret_nonce,enabled FROM remote_pairing WHERE id='default'",
+            [],
+            |row| Ok((row.get::<_,String>(0)?,row.get::<_,Vec<u8>>(1)?,row.get::<_,Vec<u8>>(2)?,row.get::<_,i64>(3)?)),
+        ).optional().map_err(redact_db)?.ok_or_else(|| "Nessun dispositivo remoto associato.".to_string())?
+    };
+    if enabled != 1 {
+        return Err("Controllo remoto disabilitato.".to_string());
+    }
+    let secret = Zeroizing::new(state.crypto.decrypt_with_aad(
+        &secret_cipher,
+        &secret_nonce,
+        PAIRING_AAD,
+    )?);
+    let base = validate_public_https(&relay_url)?;
+    let target = base
+        .join("commands/next")
+        .map_err(|_| "Endpoint relay non valido.".to_string())?;
+    if target.origin() != base.origin() {
+        return Err("Endpoint relay fuori origine.".to_string());
+    }
+    let (target, host, addresses) = resolve_public_https(target.as_str())?;
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve_to_addrs(&host, &addresses)
+        .build()
+        .map_err(|_| "Client relay Alexa non disponibile.".to_string())?;
+    let response = client
+        .get(target)
+        .bearer_auth(secret.as_str())
+        .send()
+        .await
+        .map_err(|_| "Relay Alexa non raggiungibile.".to_string())?;
+    if response.status() == reqwest::StatusCode::NO_CONTENT {
+        return Ok(RemotePollResult {
+            received: false,
+            command: None,
+            outcome: "Nessun comando in attesa.".to_string(),
+        });
+    }
+    if !response.status().is_success()
+        || response
+            .content_length()
+            .is_some_and(|size| size > 16 * 1024)
+    {
+        return Err(format!(
+            "Relay Alexa ha risposto HTTP {}.",
+            response.status()
+        ));
+    }
+    let envelope = response
+        .json::<RemoteEnvelope>()
+        .await
+        .map_err(|_| "Busta relay Alexa non valida.".to_string())?;
+    let verified = verify_remote_envelope(envelope, &state)?;
+    let outcome = match verified.command.as_str() {
+        "pc.status" => {
+            let snapshot = super::pc::collect_system_snapshot();
+            format!(
+                "PC online: CPU {:.0}%, RAM {:.0}%.",
+                snapshot.cpu_usage_percent,
+                snapshot.memory_used_bytes as f64 * 100.0 / snapshot.memory_total_bytes as f64
+            )
+        }
+        "security.status" => {
+            "Comando autenticato; apri AURA per il dettaglio Security Center.".to_string()
+        }
+        _ => "Comando autenticato; azione in attesa della conferma locale prevista dalla policy."
+            .to_string(),
+    };
+    append_audit(
+        &state,
+        &verified.id,
+        "remote.polled",
+        verified.policy,
+        "Comando Alexa ricevuto tramite polling HTTPS in uscita",
+        &serde_json::json!({"command":verified.command,"outcomeLogged":false}).to_string(),
+    )?;
+    Ok(RemotePollResult {
+        received: true,
+        command: Some(verified),
+        outcome,
     })
 }
 

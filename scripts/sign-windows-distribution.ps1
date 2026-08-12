@@ -32,10 +32,12 @@ if (-not $DlibPath -or -not (Test-Path -LiteralPath $DlibPath -PathType Leaf)) {
 $version = & $SignToolPath 2>&1 | Select-String 'Version' | Select-Object -First 1
 if (-not $version) { throw 'Versione SignTool non verificabile.' }
 
+$config = Get-Content -LiteralPath 'src-tauri\tauri.conf.json' -Raw | ConvertFrom-Json
+$releaseVersion = [string]$config.version
 $artifacts = @(
     'src-tauri\target\release\local-ai-assistant.exe',
-    'src-tauri\target\release\bundle\msi\Local AI Assistant_0.7.0_x64_en-US.msi',
-    'src-tauri\target\release\bundle\nsis\Local AI Assistant_0.7.0_x64-setup.exe'
+    "src-tauri\target\release\bundle\msi\Local AI Assistant_${releaseVersion}_x64_en-US.msi",
+    "src-tauri\target\release\bundle\nsis\Local AI Assistant_${releaseVersion}_x64-setup.exe"
 ) | ForEach-Object {
     if (-not (Test-Path -LiteralPath $_ -PathType Leaf)) { throw "Artefatto assente: $_" }
     (Resolve-Path -LiteralPath $_).Path
@@ -48,7 +50,7 @@ $metadataPath = Join-Path $metadataRoot 'artifact-signing-metadata.json'
     Endpoint = $Endpoint.TrimEnd('/')
     CodeSigningAccountName = $AccountName
     CertificateProfileName = $CertificateProfileName
-    CorrelationId = "aura-0.7.0-$([guid]::NewGuid())"
+    CorrelationId = "aura-$releaseVersion-$([guid]::NewGuid())"
 } | ConvertTo-Json | Set-Content -LiteralPath $metadataPath -Encoding UTF8
 
 try {

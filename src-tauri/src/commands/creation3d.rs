@@ -4,6 +4,7 @@ use super::{
 use serde::Serialize;
 use std::{
     fs,
+    io::{BufRead, BufReader, Read},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     time::Duration,
@@ -112,6 +113,7 @@ pub async fn creation3d_generate(
         let mut child = command
             .spawn()
             .map_err(|_| "Impossibile avviare il runtime 3D.".to_string())?;
+        let _registration = super::task_control::register_child(child.id());
         match child
             .wait_timeout(Duration::from_secs(900))
             .map_err(|_| "Attesa runtime 3D fallita.".to_string())?
@@ -140,6 +142,7 @@ pub async fn creation3d_generate(
     })
     .await
     .map_err(|_| "Worker 3D terminato in modo anomalo.".to_string())??;
+    let output = validate_generated_mesh(&output, &format)?;
     append_audit(
         &state,
         "creation3d-generate",
@@ -150,10 +153,58 @@ pub async fn creation3d_generate(
             .to_string(),
     )?;
     Ok(Creation3dResult {
-        output_path: output,
+        output_path: output.to_string_lossy().to_string(),
         device,
         format,
     })
+}
+
+fn validate_generated_mesh(path: &str, format: &str) -> Result<PathBuf, String> {
+    let (_, _, output_root) = roots()?;
+    validate_mesh_under(Path::new(path), format, &output_root)
+}
+
+fn validate_mesh_under(path: &Path, format: &str, output_root: &Path) -> Result<PathBuf, String> {
+    let mesh = fs::canonicalize(path).map_err(|_| "Mesh generata non leggibile.".to_string())?;
+    let root = fs::canonicalize(output_root)
+        .map_err(|_| "Cartella output 3D non disponibile.".to_string())?;
+    if !mesh.starts_with(root) || mesh.extension().and_then(|value| value.to_str()) != Some(format)
+    {
+        return Err("Output 3D fuori dalla cartella o dal formato consentito.".to_string());
+    }
+    let metadata = fs::metadata(&mesh).map_err(|_| "Mesh generata non leggibile.".to_string())?;
+    if metadata.len() < 12 || metadata.len() > 512 * 1024 * 1024 {
+        return Err("Dimensione mesh generata non valida.".to_string());
+    }
+    if format == "glb" {
+        let mut header = [0_u8; 12];
+        fs::File::open(&mesh)
+            .and_then(|mut file| file.read_exact(&mut header))
+            .map_err(|_| "Header GLB non leggibile.".to_string())?;
+        let version = u32::from_le_bytes(header[4..8].try_into().unwrap());
+        let declared = u32::from_le_bytes(header[8..12].try_into().unwrap()) as u64;
+        if &header[0..4] != b"glTF" || version != 2 || declared != metadata.len() {
+            return Err("GLB prodotto non valido o troncato.".to_string());
+        }
+    } else {
+        let reader = BufReader::new(
+            fs::File::open(&mesh).map_err(|_| "OBJ generato non leggibile.".to_string())?,
+        );
+        let mut vertex = false;
+        let mut face = false;
+        for line in reader.lines().take(100_000) {
+            let line = line.map_err(|_| "OBJ generato non leggibile.".to_string())?;
+            vertex |= line.starts_with("v ");
+            face |= line.starts_with("f ");
+            if vertex && face {
+                break;
+            }
+        }
+        if !vertex || !face {
+            return Err("OBJ prodotto privo di vertici o facce.".to_string());
+        }
+    }
+    Ok(mesh)
 }
 
 #[tauri::command]
@@ -255,10 +306,22 @@ fn find_blender(root: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_job;
+    use super::{validate_job, validate_mesh_under};
+    use std::{fs, io::Write};
     #[test]
     fn rejects_untyped_3d_inputs() {
         assert!(validate_job("missing.exe", "safe", "Auto", 128, "glb").is_err());
         assert!(validate_job("missing.png", "../escape", "Auto", 128, "glb").is_err());
+    }
+
+    #[test]
+    fn rejects_truncated_glb_headers() {
+        let temporary = tempfile::tempdir().expect("temporary");
+        let output = temporary.path();
+        let path = output.join("synthetic-invalid.glb");
+        let mut file = fs::File::create(&path).expect("file");
+        file.write_all(b"glTF\x02\0\0\0\x40\0\0\0").expect("header");
+        drop(file);
+        assert!(validate_mesh_under(&path, "glb", output).is_err());
     }
 }

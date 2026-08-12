@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tauri::State;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 const MAX_RESPONSE: usize = 1024 * 1024;
 
@@ -164,11 +165,35 @@ pub async fn api_call(
         db.query_row("SELECT base_url,auth_kind,auth_header,secret_cipher,secret_nonce FROM api_connectors WHERE id=?1", [&input.connector_id], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Vec<u8>>(3)?,r.get::<_,Vec<u8>>(4)?))).optional().map_err(redact_db)?.ok_or_else(|| "Connettore API non trovato.".to_string())?
     };
     let base = validate_public_https(&base_url)?;
-    let target = base
+    let mut target = base
         .join(input.path.trim_start_matches('/'))
         .map_err(|_| "Percorso API non valido.".to_string())?;
     if target.origin() != base.origin() {
         return Err("Il percorso API non può cambiare host.".to_string());
+    }
+    if auth_kind == "query" {
+        target
+            .query_pairs_mut()
+            .append_pair(&auth_header, "__AURA_SECRET_PLACEHOLDER__");
+    }
+    let secret = Zeroizing::new(state.crypto.decrypt_with_aad(
+        &cipher,
+        &nonce,
+        format!("api-connector-v1|{}|{auth_kind}", input.connector_id).as_bytes(),
+    )?);
+    if auth_kind == "query" {
+        let retained = target
+            .query_pairs()
+            .filter(|(key, value)| {
+                !(key.as_ref() == auth_header && value == "__AURA_SECRET_PLACEHOLDER__")
+            })
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect::<Vec<_>>();
+        target.set_query(None);
+        target
+            .query_pairs_mut()
+            .extend_pairs(retained)
+            .append_pair(&auth_header, secret.as_str());
     }
     let (target, target_host, target_addresses) = resolve_public_https(target.as_str())?;
     if !confirm_native_action(
@@ -181,10 +206,6 @@ pub async fn api_call(
     ) {
         return Err("Chiamata API annullata.".to_string());
     }
-    let aad = format!("api-connector-v1|{}|{auth_kind}", input.connector_id);
-    let secret = state
-        .crypto
-        .decrypt_with_aad(&cipher, &nonce, aad.as_bytes())?;
     let method = Method::from_bytes(input.method.as_bytes())
         .map_err(|_| "Metodo HTTP non valido.".to_string())?;
     let client = reqwest::Client::builder()
@@ -198,9 +219,14 @@ pub async fn api_call(
         .request(method, target.clone())
         .header("Accept", "application/json, text/plain;q=0.9");
     if auth_kind == "bearer" {
-        request = request.bearer_auth(&secret);
+        request = request.bearer_auth(secret.as_str());
     } else if auth_kind == "header" {
-        request = request.header(&auth_header, &secret);
+        request = request.header(&auth_header, secret.as_str());
+    } else if auth_kind == "basic" {
+        let (username, password) = secret
+            .split_once(':')
+            .ok_or_else(|| "Credenziale Basic non valida: usa utente:password.".to_string())?;
+        request = request.basic_auth(username, Some(password));
     }
     if !input.body_json.trim().is_empty() {
         let value: serde_json::Value = serde_json::from_str(&input.body_json)
@@ -245,23 +271,35 @@ pub async fn api_call(
 fn validate_connector(input: &ApiConnectorInput) -> Result<(), String> {
     if input.name.trim().is_empty()
         || input.name.len() > 80
-        || !matches!(input.auth_kind.as_str(), "none" | "bearer" | "header")
+        || !matches!(
+            input.auth_kind.as_str(),
+            "none" | "bearer" | "header" | "basic" | "query"
+        )
         || input.secret.len() > 8192
     {
         return Err("Configurazione connettore fuori dai limiti.".to_string());
     }
-    if input.auth_kind == "header"
-        && (input.auth_header.is_empty()
-            || input.auth_header.len() > 80
-            || !input
-                .auth_header
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+    let auth_name_valid = match input.auth_kind.as_str() {
+        "header" => input
+            .auth_header
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-'),
+        "query" => input
+            .auth_header
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.')),
+        _ => true,
+    };
+    if matches!(input.auth_kind.as_str(), "header" | "query")
+        && (input.auth_header.is_empty() || input.auth_header.len() > 80 || !auth_name_valid)
     {
         return Err("Nome header API non valido.".to_string());
     }
     if input.auth_kind != "none" && input.secret.is_empty() {
         return Err("Credenziale API mancante.".to_string());
+    }
+    if input.auth_kind == "basic" && !input.secret.contains(':') {
+        return Err("Per Basic usa il formato utente:password.".to_string());
     }
     Ok(())
 }
@@ -269,7 +307,7 @@ fn validate_call(input: &ApiCallInput) -> Result<(), String> {
     if Uuid::parse_str(&input.connector_id).is_err()
         || !matches!(
             input.method.as_str(),
-            "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
+            "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS"
         )
         || input.path.len() > 2048
         || input.path.starts_with("//")
@@ -301,5 +339,23 @@ mod tests {
             body_json: "".into(),
         };
         assert!(validate_call(&call).is_err());
+        let basic = ApiConnectorInput {
+            id: None,
+            name: "Basic".into(),
+            base_url: "https://example.com/api/".into(),
+            auth_kind: "basic".into(),
+            auth_header: "Authorization".into(),
+            secret: "utente:password".into(),
+        };
+        assert!(validate_connector(&basic).is_ok());
+        let query = ApiConnectorInput {
+            id: None,
+            name: "Query key".into(),
+            base_url: "https://example.com/api/".into(),
+            auth_kind: "query".into(),
+            auth_header: "api_key".into(),
+            secret: "segreto".into(),
+        };
+        assert!(validate_connector(&query).is_ok());
     }
 }

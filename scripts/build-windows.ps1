@@ -29,9 +29,42 @@ if (-not (Test-Path -LiteralPath $pnpm)) {
 
 $arguments = @('tauri', 'build')
 if ($Debug) { $arguments += '--debug' }
-& $pnpm @arguments
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$signingConfigPath = $null
 if (-not $Debug -and -not $SkipSigning) {
-  & (Join-Path $PSScriptRoot 'sign-windows-artifacts.ps1')
+  $certificate = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
+    Where-Object Subject -eq 'CN=AURA Local Development Code Signing' |
+    Where-Object { $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date).AddDays(30) } |
+    Sort-Object NotAfter -Descending |
+    Select-Object -First 1
+  if (-not $certificate) {
+    throw 'Certificato locale AURA assente: esegui prima sign-windows-artifacts.ps1 -CreateLocalCertificate.'
+  }
+  $signingConfigPath = Join-Path $env:TEMP ("aura-tauri-signing-$([guid]::NewGuid().ToString('N')).json")
+  $signingConfig = @{
+    bundle = @{
+      windows = @{
+        certificateThumbprint = $certificate.Thumbprint
+        digestAlgorithm = 'sha256'
+        timestampUrl = $null
+      }
+    }
+  } | ConvertTo-Json -Depth 5
+  [IO.File]::WriteAllText($signingConfigPath, $signingConfig, [Text.UTF8Encoding]::new($false))
+  $arguments += @('--config', $signingConfigPath)
+}
+
+try {
+  & $pnpm @arguments
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  if (-not $Debug -and -not $SkipSigning) {
+    # Verifica e firma nuovamente gli artefatti esterni. La configurazione Tauri
+    # sopra è ciò che garantisce che anche l'EXE incluso nei bundle sia firmato.
+    & (Join-Path $PSScriptRoot 'sign-windows-artifacts.ps1')
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  }
+}
+finally {
+  if ($signingConfigPath -and (Test-Path -LiteralPath $signingConfigPath)) {
+    Remove-Item -LiteralPath $signingConfigPath -Force
+  }
 }

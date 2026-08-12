@@ -1,3 +1,4 @@
+pub(crate) mod ai_provider;
 pub(crate) mod api;
 pub(crate) mod audit;
 pub(crate) mod browser;
@@ -9,8 +10,11 @@ pub(crate) mod profile;
 pub(crate) mod rag;
 pub(crate) mod remote;
 pub(crate) mod sandbox;
+pub(crate) mod screen;
 pub(crate) mod security;
 pub(crate) mod storage;
+pub(crate) mod task_control;
 pub(crate) mod voice;
+pub(crate) mod workspace;
 
 pub use storage::AppState;

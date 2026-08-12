@@ -1,2 +1,5 @@
 allowBuilds:
+  # jsPDF usa core-js come dipendenza transitiva, ma AURA non necessita del suo
+  # postinstall. Lo manteniamo esplicitamente bloccato.
+  core-js: false
   esbuild: true

@@ -25,14 +25,24 @@ describe('voice audio preparation', () => {
     expect(output[2]).toBeCloseTo(0.5);
   });
 
-  it('prefers a remembered device and otherwise an OPPO hands-free microphone', () => {
+  it('prefers a remembered device and otherwise follows the Windows default', () => {
     const devices = [
       { deviceId: 'default', groupId: 'a', label: 'Microfono predefinito' },
       { deviceId: 'oppo', groupId: 'b', label: 'OPPO Enco Buds2 Pro Hands-Free' }
     ];
-    expect(choosePreferredVoiceInput(devices)?.deviceId).toBe('oppo');
+    expect(choosePreferredVoiceInput(devices)?.deviceId).toBe('default');
     expect(choosePreferredVoiceInput(devices, { deviceId: 'default' })?.deviceId).toBe('default');
     expect(choosePreferredVoiceInput(devices, { deviceId: 'old', label: 'OPPO Enco Buds2 Pro Hands-Free' })?.deviceId).toBe('oppo');
+  });
+
+  it('supports any input and falls back safely when the remembered one is disconnected', () => {
+    const devices = [
+      { deviceId: 'usb', groupId: 'a', label: 'Microfono USB' },
+      { deviceId: 'webcam', groupId: 'b', label: 'Webcam HD Audio' }
+    ];
+    expect(choosePreferredVoiceInput(devices, { deviceId: 'webcam' })?.deviceId).toBe('webcam');
+    expect(choosePreferredVoiceInput(devices, { deviceId: 'bluetooth-disconnected', label: 'Vecchio headset' })?.deviceId).toBe('usb');
+    expect(choosePreferredVoiceInput([], { deviceId: 'usb' })).toBeUndefined();
   });
 
   it('calculates level diagnostics for weak and clipped audio', () => {

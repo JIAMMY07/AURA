@@ -1,0 +1,26 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "controllo aura",
+      "intents": [
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "PcStatusIntent", "samples": ["stato del PC", "come sta il computer", "controlla il PC"] },
+        { "name": "SecurityStatusIntent", "samples": ["stato sicurezza", "controlla la sicurezza del PC"] },
+        { "name": "LockPcIntent", "samples": ["blocca il PC", "blocca il computer"] },
+        {
+          "name": "OpenAppIntent",
+          "slots": [{ "name": "application", "type": "AMAZON.SearchQuery" }],
+          "samples": ["apri {application}", "avvia {application}"]
+        },
+        {
+          "name": "AskAuraIntent",
+          "slots": [{ "name": "query", "type": "AMAZON.SearchQuery" }],
+          "samples": ["chiedi ad aura {query}"]
+        }
+      ],
+      "types": []
+    }
+  }
+}

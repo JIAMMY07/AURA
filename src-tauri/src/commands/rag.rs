@@ -9,7 +9,7 @@ use reqwest::redirect::Policy;
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{cmp::Ordering, fs, io::Read, path::Path, time::Duration};
+use std::{cmp::Ordering, collections::HashSet, fs, io::Read, path::Path, time::Duration};
 use tauri::State;
 use uuid::Uuid;
 
@@ -17,7 +17,9 @@ const EMBEDDING_MODEL: &str = "qwen3-embedding:0.6b";
 const MAX_TEXT_DOCUMENT_BYTES: u64 = 512 * 1024;
 const MAX_BINARY_DOCUMENT_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_EXTRACTED_TEXT_BYTES: usize = 2 * 1024 * 1024;
-const MAX_CHUNKS: usize = 96;
+const MAX_CHUNKS: usize = 256;
+const EMBEDDING_BATCH: usize = 32;
+const MAX_SEARCH_CHUNKS: usize = 10_000;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -161,7 +163,7 @@ pub async fn rag_import_document(
             return Err(format!("Documento già indicizzato come '{existing}'."));
         }
     }
-    let chunks = chunk_text(&content);
+    let chunks = chunk_text(&content)?;
     if chunks.is_empty() {
         return Err("Documento senza testo indicizzabile.".to_string());
     }
@@ -294,7 +296,8 @@ pub async fn rag_search(
     if query.trim().len() < 2 || query.len() > 4000 || !(1..=10).contains(&limit) {
         return Err("Ricerca RAG fuori dai limiti.".to_string());
     }
-    let query_embedding = embed(vec![query])
+    let query_terms = lexical_terms(&query);
+    let query_embedding = embed(vec![query.clone()])
         .await?
         .into_iter()
         .next()
@@ -304,7 +307,15 @@ pub async fn rag_search(
             .database
             .lock()
             .map_err(|_| "Database occupato.".to_string())?;
-        let mut s=db.prepare("SELECT c.document_id,d.source_name,c.ordinal,c.content_cipher,c.content_nonce,c.embedding_cipher,c.embedding_nonce FROM rag_chunks c JOIN rag_documents d ON d.id=c.document_id LIMIT 2000").map_err(redact_db)?;
+        let total = db
+            .query_row("SELECT COUNT(*) FROM rag_chunks", [], |row| {
+                row.get::<_, usize>(0)
+            })
+            .map_err(redact_db)?;
+        if total > MAX_SEARCH_CHUNKS {
+            return Err(format!("Indice RAG oltre il limite di ricerca locale ({MAX_SEARCH_CHUNKS} chunk): suddividi l'archivio."));
+        }
+        let mut s=db.prepare("SELECT c.document_id,d.source_name,c.ordinal,c.content_cipher,c.content_nonce,c.embedding_cipher,c.embedding_nonce FROM rag_chunks c JOIN rag_documents d ON d.id=c.document_id").map_err(redact_db)?;
         let rows = s
             .query_map([], |r| {
                 Ok((
@@ -329,7 +340,13 @@ pub async fn rag_search(
         let encoded = state.crypto.decrypt_with_aad(&ec, &en, aad.as_bytes())?;
         let vector: Vec<f32> = serde_json::from_str(&encoded)
             .map_err(|_| "Embedding cifrato non valido.".to_string())?;
-        let score = cosine(&query_embedding, &vector);
+        let semantic = cosine(&query_embedding, &vector);
+        let lexical = lexical_overlap(&query_terms, &text);
+        let score = if semantic < 0.0 {
+            semantic
+        } else {
+            semantic * 0.9 + lexical * 0.1
+        };
         hits.push(RagHit {
             document_id,
             source_name: source_name.clone(),
@@ -404,21 +421,38 @@ async fn embed(input: Vec<String>) -> Result<Vec<Vec<f32>>, String> {
         .redirect(Policy::none())
         .build()
         .map_err(|_| "Client embeddings non disponibile.".to_string())?;
-    let response=client.post("http://127.0.0.1:11434/api/embed").json(&serde_json::json!({"model":EMBEDDING_MODEL,"input":input,"keep_alive":"5m","options":{"num_ctx":2048,"num_gpu":0}})).send().await.map_err(|_|"Ollama embeddings non raggiungibile.".to_string())?;
-    if !response.status().is_success() {
-        return Err("Modello embeddings locale non disponibile.".to_string());
+    let mut all = Vec::with_capacity(input.len());
+    let batches = input.chunks(EMBEDDING_BATCH).collect::<Vec<_>>();
+    for (index, batch) in batches.iter().enumerate() {
+        let keep_alive = if index + 1 == batches.len() {
+            "0"
+        } else {
+            "5m"
+        };
+        let response=client.post("http://127.0.0.1:11434/api/embed").json(&serde_json::json!({"model":EMBEDDING_MODEL,"input":batch,"keep_alive":keep_alive,"options":{"num_ctx":2048,"num_gpu":0}})).send().await.map_err(|_|"Ollama embeddings non raggiungibile.".to_string())?;
+        if !response.status().is_success() {
+            return Err("Modello embeddings locale non disponibile.".to_string());
+        }
+        let mut embeddings = response
+            .json::<EmbedResponse>()
+            .await
+            .map_err(|_| "Risposta embeddings non valida.".to_string())?
+            .embeddings;
+        if embeddings.len() != batch.len() {
+            return Err("Numero embeddings Ollama incoerente.".to_string());
+        }
+        all.append(&mut embeddings);
     }
-    response
-        .json::<EmbedResponse>()
-        .await
-        .map(|r| r.embeddings)
-        .map_err(|_| "Risposta embeddings non valida.".to_string())
+    Ok(all)
 }
-fn chunk_text(input: &str) -> Vec<String> {
+fn chunk_text(input: &str) -> Result<Vec<String>, String> {
     let chars = input.chars().collect::<Vec<_>>();
     let mut out = Vec::new();
     let mut start = 0;
-    while start < chars.len() && out.len() < MAX_CHUNKS {
+    while start < chars.len() {
+        if out.len() >= MAX_CHUNKS {
+            return Err(format!("Documento richiede più di {MAX_CHUNKS} chunk: importazione annullata senza troncare contenuto."));
+        }
         let end = (start + 1600).min(chars.len());
         let chunk = chars[start..end]
             .iter()
@@ -433,7 +467,24 @@ fn chunk_text(input: &str) -> Vec<String> {
         }
         start = end.saturating_sub(200);
     }
-    out
+    Ok(out)
+}
+
+fn lexical_terms(input: &str) -> HashSet<String> {
+    input
+        .split(|character: char| !character.is_alphanumeric())
+        .map(|term| term.to_lowercase())
+        .filter(|term| term.chars().count() >= 3)
+        .take(128)
+        .collect()
+}
+
+fn lexical_overlap(query: &HashSet<String>, text: &str) -> f32 {
+    if query.is_empty() {
+        return 0.0;
+    }
+    let text = lexical_terms(text);
+    query.iter().filter(|term| text.contains(*term)).count() as f32 / query.len() as f32
 }
 fn cosine(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
@@ -451,17 +502,26 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{chunk_text, cosine, extract_docx, MAX_CHUNKS};
+    use super::{chunk_text, cosine, extract_docx, lexical_overlap, lexical_terms};
     use std::io::Write;
     #[test]
     fn chunks_with_bounds_and_overlap() {
-        let c = chunk_text(&"x".repeat(200_000));
-        assert_eq!(c.len(), MAX_CHUNKS);
+        let c = chunk_text(&"x".repeat(20_000)).unwrap();
+        assert!(c.len() > 1);
         assert!(c.iter().all(|v| v.len() <= 1600));
+        assert!(chunk_text(&"x".repeat(500_000)).is_err());
     }
     #[test]
     fn cosine_orders_vectors() {
         assert!(cosine(&[1.0, 0.0], &[1.0, 0.0]) > cosine(&[1.0, 0.0], &[0.0, 1.0]));
+    }
+    #[test]
+    fn lexical_signal_rewards_exact_domain_terms() {
+        let query = lexical_terms("codice errore AURA-742");
+        assert!(
+            lexical_overlap(&query, "Manuale: risolvere errore AURA-742")
+                > lexical_overlap(&query, "Testo generico")
+        );
     }
     #[test]
     fn extracts_bounded_docx_text() {

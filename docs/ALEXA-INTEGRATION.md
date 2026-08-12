@@ -86,7 +86,7 @@ Il `pairing_secret` visualizzato da AURA deve prima essere decodificato da Base6
 - payload JSON valido e limitato;
 - confronto della firma HMAC resistente agli attacchi temporali;
 - comando presente nell'allowlist;
-- audit senza payload e senza credenziali;
+- audit con richiesta/comando cifrati AES-256-GCM, mai con firma, nonce, token o credenziali; il contenuto viene decifrato solo su richiesta nel pannello Log;
 - guardrail locale applicato anche dopo l'autenticazione remota.
 
 ## Allowlist iniziale

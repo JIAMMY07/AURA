@@ -4,7 +4,9 @@ use super::{
 use crate::crypto::Crypto;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeSet,
     env, fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -27,6 +29,9 @@ pub struct SandboxStatus {
     container_runtime: bool,
     simulation_available: bool,
     execution_allowed: bool,
+    canary_available: bool,
+    automatic_rollback: bool,
+    attestation_version: u8,
     reason: String,
 }
 
@@ -47,6 +52,14 @@ pub struct EvolutionOperation {
     artifact_path: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SandboxInstallResult {
+    started: bool,
+    restart_may_be_required: bool,
+    message: String,
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredEvolutionReport {
@@ -63,6 +76,16 @@ struct StoredEvolutionReport {
     artifact_path: String,
     #[serde(default)]
     run_id: String,
+    #[serde(default)]
+    inspection: Option<EvolutionInspection>,
+    #[serde(default)]
+    diff_approved: bool,
+    #[serde(default)]
+    attempts: u8,
+    #[serde(default)]
+    attestation: Option<EvolutionAttestation>,
+    #[serde(default)]
+    rollback_status: String,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -97,11 +120,174 @@ pub struct EvolutionReportView {
     execution_allowed: bool,
     artifact_path: String,
     run_id: String,
+    inspection: Option<EvolutionInspection>,
+    diff_approved: bool,
+    attempts: u8,
+    attestation: Option<EvolutionAttestation>,
+    rollback_status: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvolutionAttestation {
+    schema_version: u8,
+    run_id: String,
+    test_profile: String,
+    patch_sha256: String,
+    dependency_policy: String,
+    network_during_test: bool,
+    host_filesystem_mounted_read_only: bool,
+    canary_passed: bool,
+    canary_fresh_namespace: bool,
+    canary_network_disabled: bool,
+    #[serde(default)]
+    changed_files: Vec<String>,
+    #[serde(default)]
+    security_findings: Vec<String>,
+    created_at_utc: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CanaryAttestation {
+    schema_version: u8,
+    run_id: String,
+    passed: bool,
+    fresh_namespace: bool,
+    network_during_canary: bool,
+    host_filesystem_mounted_read_only: bool,
+    exit_code: i32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PromotionManifest {
+    schema_version: u8,
+    status: String,
+    original_branch: String,
+    original_commit: String,
+    review_branch: String,
+    patch_sha256: String,
+    rollback_verified: bool,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvolutionInspection {
+    changed_files: Vec<String>,
+    capabilities: Vec<String>,
+    dependency_changes: Vec<String>,
+    security_findings: Vec<String>,
+    risk: String,
+    patch_sha256: String,
+    diff_excerpt: String,
 }
 
 #[tauri::command]
 pub fn sandbox_status() -> SandboxStatus {
     detect_status()
+}
+
+#[tauri::command]
+pub fn evolution_detect_project_root() -> Result<Option<String>, String> {
+    enforce_capability("evolution.inspect", "allow")?;
+    let mut starts = Vec::new();
+    if let Ok(executable) = env::current_exe() {
+        if let Some(parent) = executable.parent() {
+            starts.push(parent.to_path_buf());
+        }
+    }
+    if let Ok(current) = env::current_dir() {
+        starts.push(current);
+    }
+    for start in starts {
+        for ancestor in start.ancestors() {
+            if ancestor.join(".git").is_dir()
+                && ancestor.join("package.json").is_file()
+                && ancestor.join("src-tauri").join("Cargo.toml").is_file()
+            {
+                return Ok(Some(ancestor.to_string_lossy().to_string()));
+            }
+        }
+    }
+    Ok(None)
+}
+
+#[tauri::command]
+pub fn sandbox_install_runtime(state: State<'_, AppState>) -> Result<SandboxInstallResult, String> {
+    enforce_capability("sandbox.install", "confirm")?;
+    if detect_status().execution_allowed {
+        return Ok(SandboxInstallResult {
+            started: false,
+            restart_may_be_required: false,
+            message: "Runtime di isolamento già verificato.".to_string(),
+        });
+    }
+    if !confirm_native_action(
+        "Installa runtime isolato AURA",
+        "Abilitare WSL e Virtual Machine Platform e installare Ubuntu con bubblewrap? Windows mostrerà una richiesta UAC e potrebbe richiedere il riavvio.",
+    ) {
+        return Ok(SandboxInstallResult {
+            started: false,
+            restart_may_be_required: false,
+            message: "Installazione runtime annullata.".to_string(),
+        });
+    }
+    let script = ensure_runtime_script(
+        &state.app_data,
+        "setup-evolution-sandbox.ps1",
+        include_str!("../../../scripts/setup-evolution-sandbox.ps1"),
+    )?;
+    launch_elevated_setup(&script)?;
+    append_audit(
+        &state,
+        "sandbox-runtime-install",
+        "sandbox.install.started",
+        "confirm",
+        "Provisioning runtime isolato avviato con UAC",
+        r#"{"contentLogged":false,"restartMayBeRequired":true}"#,
+    )?;
+    Ok(SandboxInstallResult {
+        started: true,
+        restart_may_be_required: true,
+        message: "Provisioning avviato. Segui la finestra amministrativa; se richiesto, riavvia Windows e premi di nuovo questo pulsante.".to_string(),
+    })
+}
+
+#[cfg(windows)]
+fn launch_elevated_setup(script: &Path) -> Result<(), String> {
+    use std::ptr::{null, null_mut};
+    use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
+    let verb = "runas\0".encode_utf16().collect::<Vec<_>>();
+    let executable = "powershell.exe\0".encode_utf16().collect::<Vec<_>>();
+    let parameters = format!(
+        "-NoExit -NoProfile -ExecutionPolicy Bypass -File \"{}\"\0",
+        script.to_string_lossy()
+    )
+    .encode_utf16()
+    .collect::<Vec<_>>();
+    // SAFETY: all strings are NUL-terminated UTF-16 buffers that remain alive
+    // for the duration of ShellExecuteW; no mutable pointers are passed.
+    let result = unsafe {
+        ShellExecuteW(
+            null_mut(),
+            verb.as_ptr(),
+            executable.as_ptr(),
+            parameters.as_ptr(),
+            null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result as usize <= 32 {
+        Err("Windows non ha avviato il provisioning elevato.".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn launch_elevated_setup(_script: &Path) -> Result<(), String> {
+    Err("Provisioning disponibile soltanto su Windows.".to_string())
 }
 
 #[tauri::command]
@@ -166,6 +352,11 @@ pub fn evolution_record_proposal(
         created_at: now_millis()?,
         artifact_path: String::new(),
         run_id: String::new(),
+        inspection: None,
+        diff_approved: false,
+        attempts: 0,
+        attestation: None,
+        rollback_status: String::new(),
     };
     fs::write(
         &report_path,
@@ -197,12 +388,36 @@ pub async fn evolution_generate_patch(
     enforce_capability("evolution.propose", "sandbox")?;
     validate_proposal_id(&proposal_id)?;
     let project = validate_project_path(&project_path)?;
-    let objective = load_stored_report(
-        &proposal_report_path(&state.app_data, &proposal_id),
-        &proposal_id,
-        &state.crypto,
-    )?
-    .objective;
+    let report_path = proposal_report_path(&state.app_data, &proposal_id);
+    let mut report = load_stored_report(&report_path, &proposal_id, &state.crypto)?;
+    if !matches!(
+        report.state.as_str(),
+        "proposal-only" | "awaiting-diff-approval" | "diff-approved" | "generation-failed"
+    ) {
+        return Err("La proposta non e nello stato corretto per generare una patch.".to_string());
+    }
+    if report.attempts >= 3 {
+        return Err(
+            "Limite di tre tentativi raggiunto: crea una nuova proposta con un obiettivo corretto."
+                .to_string(),
+        );
+    }
+    let objective = report.objective.clone();
+    report.state = "generating".to_string();
+    report.promotion = "not-eligible".to_string();
+    report.artifact_path.clear();
+    report.inspection = None;
+    report.diff_approved = false;
+    report.attestation = None;
+    report.rollback_status.clear();
+    report.attempts = report.attempts.saturating_add(1);
+    store_report(&report_path, &report, &state.crypto)?;
+    let artifact_dir = local_evolution_root()?.join("proposals").join(&proposal_id);
+    if artifact_dir.exists() {
+        fs::remove_dir_all(&artifact_dir).map_err(|error| {
+            format!("Impossibile sostituire gli artefatti del tentativo precedente: {error}")
+        })?;
+    }
     let script = ensure_runtime_script(
         &state.app_data,
         "evolution-generate-patch.ps1",
@@ -210,7 +425,7 @@ pub async fn evolution_generate_patch(
     )?;
     let id = proposal_id.clone();
     let project_string = project.to_string_lossy().into_owned();
-    tauri::async_runtime::spawn_blocking(move || {
+    let generation = tauri::async_runtime::spawn_blocking(move || {
         run_powershell(
             &script,
             vec![
@@ -221,33 +436,49 @@ pub async fn evolution_generate_patch(
                 "-ProposalId".to_string(),
                 id,
                 "-Model".to_string(),
-                "qwen2.5-coder:3b".to_string(),
+                "aura-coder:3b".to_string(),
             ],
             Duration::from_secs(330),
         )
     })
     .await
-    .map_err(|_| "Worker generazione Evolution interrotto.".to_string())??;
+    .unwrap_or_else(|_| Err("Worker generazione Evolution interrotto.".to_string()));
+    if let Err(error) = generation {
+        report.state = "generation-failed".to_string();
+        store_report(&report_path, &report, &state.crypto)?;
+        append_audit(
+            &state,
+            &proposal_id,
+            "evolution.patch.failed",
+            "sandbox",
+            "Tentativo di generazione fallito senza esecuzione",
+            &serde_json::json!({"attempt":report.attempts,"contentLogged":false}).to_string(),
+        )?;
+        return Err(error);
+    }
     let patch = local_evolution_root()?
         .join("proposals")
         .join(&proposal_id)
         .join("proposal.patch");
-    if !patch.is_file()
-        || fs::metadata(&patch)
-            .map_err(|_| "Patch non leggibile.".to_string())?
-            .len()
-            > 5 * 1024 * 1024
-    {
-        return Err("La generazione non ha prodotto una patch valida e limitata.".to_string());
-    }
-    update_report_state(
-        &state,
-        &proposal_id,
-        "generated-not-executed",
-        "manual-review-required",
-        Some(&patch),
-        None,
-    )?;
+    let inspection = if !patch.is_file() {
+        Err("La generazione non ha prodotto una patch valida e limitata.".to_string())
+    } else {
+        inspect_patch_file(&patch)
+    };
+    let inspection = match inspection {
+        Ok(value) => value,
+        Err(error) => {
+            report.state = "generation-failed".to_string();
+            store_report(&report_path, &report, &state.crypto)?;
+            return Err(error);
+        }
+    };
+    report.state = "awaiting-diff-approval".to_string();
+    report.promotion = "diff-review-required".to_string();
+    report.artifact_path = patch.to_string_lossy().to_string();
+    report.inspection = Some(inspection.clone());
+    report.diff_approved = false;
+    store_report(&report_path, &report, &state.crypto)?;
     append_audit(
         &state,
         &proposal_id,
@@ -258,8 +489,67 @@ pub async fn evolution_generate_patch(
     )?;
     Ok(EvolutionOperation {
         id: proposal_id,
-        status: "generated-not-executed".to_string(),
+        status: "awaiting-diff-approval".to_string(),
         artifact_path: patch.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+pub fn evolution_inspect_patch(
+    proposal_id: String,
+    state: State<'_, AppState>,
+) -> Result<EvolutionInspection, String> {
+    enforce_capability("evolution.inspect", "allow")?;
+    validate_proposal_id(&proposal_id)?;
+    let report_path = proposal_report_path(&state.app_data, &proposal_id);
+    let report = load_stored_report(&report_path, &proposal_id, &state.crypto)?;
+    report
+        .inspection
+        .ok_or_else(|| "La proposta non contiene ancora un diff ispezionabile.".to_string())
+}
+
+#[tauri::command]
+pub fn evolution_approve_patch(
+    proposal_id: String,
+    state: State<'_, AppState>,
+) -> Result<EvolutionOperation, String> {
+    enforce_capability("evolution.approve", "confirm")?;
+    validate_proposal_id(&proposal_id)?;
+    let report_path = proposal_report_path(&state.app_data, &proposal_id);
+    let mut report = load_stored_report(&report_path, &proposal_id, &state.crypto)?;
+    if report.state != "awaiting-diff-approval" || report.inspection.is_none() {
+        return Err("Genera e ispeziona il diff prima dell'approvazione.".to_string());
+    }
+    let inspection = report.inspection.as_ref().expect("inspection checked");
+    let prompt = format!(
+        "Approvare il diff generato da AURA Forge? Rischio: {}. File: {}. L'approvazione consente soltanto i test nella sandbox forte; non modifica il progetto reale.",
+        inspection.risk,
+        inspection.changed_files.join(", ")
+    );
+    if !confirm_native_action("Approva diff AURA Forge", &prompt) {
+        return Err("Approvazione del diff annullata dall'utente.".to_string());
+    }
+    report.state = "diff-approved".to_string();
+    report.promotion = "sandbox-validation-required".to_string();
+    report.diff_approved = true;
+    store_report(&report_path, &report, &state.crypto)?;
+    append_audit(
+        &state,
+        &proposal_id,
+        "evolution.diff.approved",
+        "confirm",
+        "Diff effettivo approvato per il test isolato",
+        &serde_json::json!({
+            "risk": inspection.risk,
+            "patchSha256": inspection.patch_sha256,
+            "contentLogged": false
+        })
+        .to_string(),
+    )?;
+    Ok(EvolutionOperation {
+        id: proposal_id,
+        status: "diff-approved".to_string(),
+        artifact_path: report.artifact_path,
     })
 }
 
@@ -279,12 +569,25 @@ pub async fn evolution_run_sandbox(
         return Err("Profilo test non consentito.".to_string());
     }
     let project = validate_project_path(&project_path)?;
+    let report_path = proposal_report_path(&state.app_data, &proposal_id);
+    let mut report = load_stored_report(&report_path, &proposal_id, &state.crypto)?;
+    if report.state != "diff-approved" || !report.diff_approved {
+        return Err("Il diff effettivo deve essere approvato prima dei test.".to_string());
+    }
     let patch = local_evolution_root()?
         .join("proposals")
         .join(&proposal_id)
         .join("proposal.patch");
     if !patch.is_file() {
         return Err("Genera prima la patch della proposta.".to_string());
+    }
+    let approved_hash = report
+        .inspection
+        .as_ref()
+        .map(|inspection| inspection.patch_sha256.as_str())
+        .ok_or_else(|| "Ispezione approvata assente.".to_string())?;
+    if sha256_file(&patch)? != approved_hash {
+        return Err("La patch è cambiata dopo l'approvazione: test bloccati.".to_string());
     }
     let run_id = Uuid::new_v4().to_string();
     let script = ensure_runtime_script(
@@ -295,6 +598,7 @@ pub async fn evolution_run_sandbox(
     let run_copy = run_id.clone();
     let project_string = project.to_string_lossy().into_owned();
     let patch_string = patch.to_string_lossy().into_owned();
+    let profile_for_runner = test_profile.clone();
     tauri::async_runtime::spawn_blocking(move || {
         run_powershell(
             &script,
@@ -304,7 +608,7 @@ pub async fn evolution_run_sandbox(
                 "-PatchPath".to_string(),
                 patch_string,
                 "-TestProfile".to_string(),
-                test_profile,
+                profile_for_runner,
                 "-RunId".to_string(),
                 run_copy,
             ],
@@ -313,32 +617,30 @@ pub async fn evolution_run_sandbox(
     })
     .await
     .map_err(|_| "Worker sandbox Evolution interrotto.".to_string())??;
-    let validated = local_evolution_root()?
-        .join("runs")
-        .join(&run_id)
-        .join("validated.patch");
+    let run_root = local_evolution_root()?.join("runs").join(&run_id);
+    let validated = run_root.join("validated.patch");
     if !validated.is_file() {
         return Err("La sandbox non ha prodotto una patch validata.".to_string());
     }
-    update_report_state(
-        &state,
-        &proposal_id,
-        "sandbox-validated",
-        "manual-review-required",
-        Some(&validated),
-        Some(&run_id),
-    )?;
+    let attestation = verify_run_attestation(&run_root, &report, &run_id, &test_profile)?;
+    report.state = "canary-validated".to_string();
+    report.promotion = "manual-promotion-with-auto-rollback".to_string();
+    report.artifact_path = validated.to_string_lossy().to_string();
+    report.run_id = run_id.clone();
+    report.attestation = Some(attestation);
+    report.rollback_status = "armed".to_string();
+    store_report(&report_path, &report, &state.crypto)?;
     append_audit(
         &state,
         &proposal_id,
         "evolution.sandbox.validated",
         "sandbox",
-        "Patch validata nel runtime isolato",
-        &serde_json::json!({"runId":run_id}).to_string(),
+        "Patch validata da test e canary in runtime isolati distinti",
+        &serde_json::json!({"runId":run_id,"canaryPassed":true,"rollbackArmed":true}).to_string(),
     )?;
     Ok(EvolutionOperation {
         id: proposal_id,
-        status: "sandbox-validated".to_string(),
+        status: "canary-validated".to_string(),
         artifact_path: validated.to_string_lossy().to_string(),
     })
 }
@@ -355,12 +657,36 @@ pub async fn evolution_promote_patch(
     if !detect_status().execution_allowed {
         return Err("Sandbox forte non verificata: promozione bloccata.".to_string());
     }
+    let report_path = proposal_report_path(&state.app_data, &proposal_id);
+    let mut report = load_stored_report(&report_path, &proposal_id, &state.crypto)?;
+    if report.state != "canary-validated"
+        || report.run_id.is_empty()
+        || !report.diff_approved
+        || report
+            .attestation
+            .as_ref()
+            .is_none_or(|value| !value.canary_passed)
+    {
+        return Err("La proposta non risulta validata da un run sandbox correlato.".to_string());
+    }
+    let validated = fs::canonicalize(&validated_patch)
+        .map_err(|_| "Patch validata non trovata.".to_string())?;
+    let expected = fs::canonicalize(
+        local_evolution_root()?
+            .join("runs")
+            .join(&report.run_id)
+            .join("validated.patch"),
+    )
+    .map_err(|_| "Artefatto del run correlato non disponibile.".to_string())?;
+    let reported = fs::canonicalize(&report.artifact_path)
+        .map_err(|_| "Artefatto registrato nel report non disponibile.".to_string())?;
+    if validated != expected || validated != reported {
+        return Err("La patch non corrisponde al run associato alla proposta.".to_string());
+    }
     if !confirm_native_action("Conferma promozione AURA", "Applicare la patch validata a un nuovo branch Git di revisione? Nessun commit verra creato.") {
         return Err("Promozione annullata dall'utente.".to_string());
     }
     let project = validate_project_path(&project_path)?;
-    let validated = fs::canonicalize(&validated_patch)
-        .map_err(|_| "Patch validata non trovata.".to_string())?;
     let expected_root = fs::canonicalize(local_evolution_root()?.join("runs"))
         .map_err(|_| "Cartella run non disponibile.".to_string())?;
     if !validated.starts_with(&expected_root)
@@ -375,7 +701,7 @@ pub async fn evolution_promote_patch(
     )?;
     let project_string = project.to_string_lossy().into_owned();
     let validated_string = validated.to_string_lossy().into_owned();
-    tauri::async_runtime::spawn_blocking(move || {
+    let promotion_result = tauri::async_runtime::spawn_blocking(move || {
         run_powershell(
             &script,
             vec![
@@ -389,26 +715,82 @@ pub async fn evolution_promote_patch(
         )
     })
     .await
-    .map_err(|_| "Worker promozione Evolution interrotto.".to_string())??;
-    update_report_state(
-        &state,
-        &proposal_id,
-        "promoted-to-review-branch",
-        "human-review-pending",
-        None,
-        None,
-    )?;
+    .map_err(|_| "Worker promozione Evolution interrotto.".to_string())?;
+    if let Err(reason) = promotion_result {
+        let rollback = local_evolution_root()?
+            .join("runs")
+            .join(&report.run_id)
+            .join("rollback.json");
+        let rollback_failed = local_evolution_root()?
+            .join("runs")
+            .join(&report.run_id)
+            .join("rollback-failed.json");
+        report.state = if rollback.is_file() {
+            "promotion-rolled-back"
+        } else if rollback_failed.is_file() {
+            "rollback-failed-manual-recovery-required"
+        } else {
+            "promotion-blocked-no-change"
+        }
+        .to_string();
+        report.promotion = "review-required-before-retry".to_string();
+        report.rollback_status = if rollback.is_file() {
+            "completed"
+        } else if rollback_failed.is_file() {
+            "failed"
+        } else {
+            "not-needed"
+        }
+        .to_string();
+        store_report(&report_path, &report, &state.crypto)?;
+        append_audit(
+            &state,
+            &proposal_id,
+            "evolution.promotion.rolled-back",
+            "deny",
+            "Promozione non completata; esito rollback registrato senza occultare i fallimenti",
+            &serde_json::json!({"rollback":report.rollback_status,"reason":reason}).to_string(),
+        )?;
+        return Err(reason);
+    }
+    let manifest_path = local_evolution_root()?
+        .join("runs")
+        .join(&report.run_id)
+        .join("promotion-manifest.json");
+    let manifest: PromotionManifest = serde_json::from_slice(
+        &fs::read(&manifest_path)
+            .map_err(|_| "Manifest di recupero promozione assente.".to_string())?,
+    )
+    .map_err(|_| "Manifest di recupero promozione non valido.".to_string())?;
+    let expected_hash = report
+        .attestation
+        .as_ref()
+        .map(|value| value.patch_sha256.as_str());
+    if manifest.schema_version != 1
+        || manifest.status != "canary-promoted"
+        || manifest.original_branch.is_empty()
+        || manifest.original_commit.len() != 40
+        || manifest.review_branch.is_empty()
+        || Some(manifest.patch_sha256.as_str()) != expected_hash
+        || !manifest.rollback_verified
+    {
+        return Err("Manifest di recupero incoerente: stato non promosso.".to_string());
+    }
+    report.state = "canary-promoted-to-review-branch".to_string();
+    report.promotion = "human-review-pending".to_string();
+    report.rollback_status = "verified".to_string();
+    store_report(&report_path, &report, &state.crypto)?;
     append_audit(
         &state,
         &proposal_id,
         "evolution.promoted",
         "confirm",
-        "Patch applicata a branch Git di revisione",
-        r#"{"commitCreated":false}"#,
+        "Patch canary applicata a branch Git di revisione con rollback verificato",
+        r#"{"commitCreated":false,"canaryPassed":true,"rollbackVerified":true}"#,
     )?;
     Ok(EvolutionOperation {
         id: proposal_id,
-        status: "promoted-to-review-branch".to_string(),
+        status: "canary-promoted-to-review-branch".to_string(),
         artifact_path: validated_patch,
     })
 }
@@ -482,6 +864,11 @@ fn decrypt_report(
         execution_allowed: report.sandbox.execution_allowed,
         artifact_path: report.artifact_path,
         run_id: report.run_id,
+        inspection: report.inspection,
+        diff_approved: report.diff_approved,
+        attempts: report.attempts,
+        attestation: report.attestation,
+        rollback_status: report.rollback_status,
     })
 }
 
@@ -529,26 +916,210 @@ fn proposal_report_path(app_data: &Path, proposal_id: &str) -> PathBuf {
         .join(format!("{proposal_id}.json"))
 }
 
-fn update_report_state(
-    state: &AppState,
-    proposal_id: &str,
-    new_state: &str,
-    promotion: &str,
-    artifact_path: Option<&Path>,
-    run_id: Option<&str>,
+fn sha256_file(path: &Path) -> Result<String, String> {
+    let bytes = fs::read(path).map_err(|_| "Artefatto Evolution non leggibile.".to_string())?;
+    if bytes.is_empty() || bytes.len() > 5 * 1024 * 1024 {
+        return Err("Artefatto Evolution vuoto o oltre 5 MiB.".to_string());
+    }
+    Ok(hex::encode(Sha256::digest(bytes)))
+}
+
+fn verify_run_attestation(
+    run_root: &Path,
+    report: &StoredEvolutionReport,
+    run_id: &str,
+    test_profile: &str,
+) -> Result<EvolutionAttestation, String> {
+    let attestation_path = run_root.join("attestation.json");
+    let canary_path = run_root.join("canary.json");
+    for path in [&attestation_path, &canary_path] {
+        let metadata =
+            fs::metadata(path).map_err(|_| "Attestazione sandbox/canary mancante.".to_string())?;
+        if metadata.len() == 0 || metadata.len() > MAX_REPORT_BYTES {
+            return Err("Attestazione sandbox/canary fuori dai limiti.".to_string());
+        }
+    }
+    let attestation: EvolutionAttestation = serde_json::from_slice(
+        &fs::read(&attestation_path)
+            .map_err(|_| "Attestazione sandbox non leggibile.".to_string())?,
+    )
+    .map_err(|_| "Attestazione sandbox non valida.".to_string())?;
+    let canary: CanaryAttestation = serde_json::from_slice(
+        &fs::read(&canary_path).map_err(|_| "Attestazione canary non leggibile.".to_string())?,
+    )
+    .map_err(|_| "Attestazione canary non valida.".to_string())?;
+    let validated = run_root.join("validated.patch");
+    let actual_hash = sha256_file(&validated)?;
+    let approved_hash = report
+        .inspection
+        .as_ref()
+        .map(|inspection| inspection.patch_sha256.as_str())
+        .ok_or_else(|| "Hash della patch approvata assente.".to_string())?;
+    if attestation.schema_version != 2
+        || attestation.run_id != run_id
+        || attestation.test_profile != test_profile
+        || attestation.patch_sha256 != actual_hash
+        || actual_hash != approved_hash
+        || attestation.dependency_policy != "immutable-offline"
+        || attestation.network_during_test
+        || !attestation.host_filesystem_mounted_read_only
+        || !attestation.canary_passed
+        || !attestation.canary_fresh_namespace
+        || !attestation.canary_network_disabled
+        || canary.schema_version != 1
+        || canary.run_id != run_id
+        || !canary.passed
+        || !canary.fresh_namespace
+        || canary.network_during_canary
+        || !canary.host_filesystem_mounted_read_only
+        || canary.exit_code != 0
+    {
+        return Err(
+            "Attestazione non conforme: artefatto revocato e promozione bloccata.".to_string(),
+        );
+    }
+    Ok(attestation)
+}
+
+fn store_report(
+    path: &Path,
+    report: &StoredEvolutionReport,
+    crypto: &Crypto,
 ) -> Result<(), String> {
-    let path = proposal_report_path(&state.app_data, proposal_id);
-    let mut report = load_stored_report(&path, proposal_id, &state.crypto)?;
-    report.state = new_state.to_string();
-    report.promotion = promotion.to_string();
-    if let Some(path) = artifact_path {
-        report.artifact_path = path.to_string_lossy().to_string();
-    }
-    if let Some(value) = run_id {
-        report.run_id = value.to_string();
-    }
-    fs::write(path, encrypt_report(&report, &state.crypto)?)
+    fs::write(path, encrypt_report(report, crypto)?)
         .map_err(|_| "Aggiornamento report Evolution fallito.".to_string())
+}
+
+fn inspect_patch_file(path: &Path) -> Result<EvolutionInspection, String> {
+    let bytes = fs::read(path).map_err(|_| "Patch Evolution non leggibile.".to_string())?;
+    if bytes.is_empty() || bytes.len() > 5 * 1024 * 1024 {
+        return Err("Patch Evolution vuota o oltre i limiti.".to_string());
+    }
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| "Patch Evolution non codificata in UTF-8 valido.".to_string())?;
+    let mut changed_files = BTreeSet::new();
+    let mut capabilities = BTreeSet::new();
+    let mut dependency_changes = BTreeSet::new();
+    let mut security_findings = BTreeSet::new();
+    let mut added = String::new();
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("diff --git a/") {
+            if let Some((file, _)) = rest.split_once(" b/") {
+                changed_files.insert(file.to_string());
+                if matches!(
+                    file,
+                    "package.json" | "pnpm-lock.yaml" | "Cargo.toml" | "Cargo.lock"
+                ) || file.ends_with("requirements.txt")
+                    || file.ends_with("pyproject.toml")
+                {
+                    dependency_changes.insert(file.to_string());
+                }
+            }
+        }
+        if line.starts_with('+') && !line.starts_with("+++") {
+            added.push_str(line);
+            added.push('\n');
+        }
+    }
+    let lower = added.to_ascii_lowercase();
+    let markers = [
+        (
+            "filesystem",
+            [
+                "std::fs",
+                "fs::",
+                "write_text",
+                "writefile",
+                "pathbuf",
+                "read_to_string",
+            ]
+            .as_slice(),
+        ),
+        (
+            "network",
+            [
+                "reqwest",
+                "httpx",
+                "requests.",
+                "fetch(",
+                "websocket",
+                "tcpstream",
+            ]
+            .as_slice(),
+        ),
+        (
+            "process",
+            [
+                "std::process",
+                "command::new",
+                "subprocess",
+                "popen",
+                "powershell",
+                "cmd.exe",
+            ]
+            .as_slice(),
+        ),
+        (
+            "credentials",
+            [
+                "keyring",
+                "credential",
+                "api_key",
+                "access_token",
+                "private key",
+                ".env",
+            ]
+            .as_slice(),
+        ),
+        (
+            "windows-control",
+            ["windows_sys", "shellexecute", "sendinput", "registry"].as_slice(),
+        ),
+    ];
+    for (capability, needles) in markers {
+        if needles.iter().any(|needle| lower.contains(needle)) {
+            capabilities.insert(capability.to_string());
+        }
+    }
+    if capabilities.contains("credentials") {
+        security_findings.insert(
+            "Accesso potenziale a credenziali o segreti: revisione critica obbligatoria."
+                .to_string(),
+        );
+    }
+    if capabilities.contains("process") {
+        security_findings.insert(
+            "Avvio potenziale di processi: consentito soltanto nel profilo sandbox dichiarato."
+                .to_string(),
+        );
+    }
+    if !dependency_changes.is_empty() {
+        security_findings.insert(
+            "Modifica delle dipendenze rilevata: bloccata dalla policy AURA corrente.".to_string(),
+        );
+    }
+    if capabilities.is_empty() {
+        capabilities.insert("ui-or-pure-computation".to_string());
+    }
+    let risk = if capabilities.contains("credentials") || capabilities.contains("process") {
+        "critical"
+    } else if capabilities.contains("network")
+        || capabilities.contains("filesystem")
+        || capabilities.contains("windows-control")
+    {
+        "moderate"
+    } else {
+        "safe"
+    };
+    Ok(EvolutionInspection {
+        changed_files: changed_files.into_iter().collect(),
+        capabilities: capabilities.into_iter().collect(),
+        dependency_changes: dependency_changes.into_iter().collect(),
+        security_findings: security_findings.into_iter().collect(),
+        risk: risk.to_string(),
+        patch_sha256: hex::encode(Sha256::digest(&bytes)),
+        diff_excerpt: text.chars().take(24_000).collect(),
+    })
 }
 
 fn validate_proposal_id(value: &str) -> Result<(), String> {
@@ -582,6 +1153,7 @@ fn ensure_runtime_script(app_data: &Path, name: &str, contents: &str) -> Result<
         "evolution-generate-patch.ps1"
             | "evolution-sandbox-run.ps1"
             | "evolution-promote-patch.ps1"
+            | "setup-evolution-sandbox.ps1"
     ) {
         return Err("Script Evolution non autorizzato.".to_string());
     }
@@ -619,6 +1191,7 @@ fn run_powershell(script: &Path, arguments: Vec<String>, timeout: Duration) -> R
     let mut child = command
         .spawn()
         .map_err(|_| "Avvio pipeline Evolution fallito.".to_string())?;
+    let _registration = super::task_control::register_child(child.id());
     match child
         .wait_timeout(timeout)
         .map_err(|_| "Attesa pipeline Evolution fallita.".to_string())?
@@ -660,6 +1233,9 @@ fn detect_status() -> SandboxStatus {
         container_runtime,
         simulation_available: true,
         execution_allowed: strong,
+        canary_available: strong,
+        automatic_rollback: true,
+        attestation_version: 2,
         reason: if bubblewrap {
             "WSL+bubblewrap verificato: host e rete non sono montati; il runner può eseguire soltanto profili di test allowlistati."
         } else {
@@ -685,6 +1261,16 @@ fn verified_bubblewrap() -> bool {
         "--unshare-all",
         "--die-with-parent",
         "--new-session",
+        "--clearenv",
+        "--setenv",
+        "PATH",
+        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "--setenv",
+        "HOME",
+        "/tmp",
+        "--setenv",
+        "LANG",
+        "C.UTF-8",
         "--ro-bind",
         "/usr",
         "/usr",
@@ -787,10 +1373,13 @@ fn now_millis() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        decrypt_report, detect_status, encrypt_report, strong_isolation, validate_text,
-        StoredEvolutionReport, StoredSandboxStatus,
+        decrypt_report, detect_status, encrypt_report, inspect_patch_file, sha256_file,
+        strong_isolation, validate_text, verify_run_attestation, StoredEvolutionReport,
+        StoredSandboxStatus,
     };
     use crate::crypto::Crypto;
+    use std::fs;
+    use tempfile::tempdir;
     use uuid::Uuid;
 
     #[test]
@@ -826,6 +1415,11 @@ mod tests {
             created_at: "1".to_string(),
             artifact_path: String::new(),
             run_id: String::new(),
+            inspection: None,
+            diff_approved: false,
+            attempts: 0,
+            attestation: None,
+            rollback_status: String::new(),
         };
         let crypto = Crypto::from_master([23_u8; 32]).expect("crypto");
         let encrypted = encrypt_report(&report, &crypto).expect("encrypt report");
@@ -833,5 +1427,87 @@ mod tests {
         let view = decrypt_report(&encrypted, &id, &crypto).expect("decrypt report");
         assert_eq!(view.objective, report.objective);
         assert!(decrypt_report(&encrypted, &Uuid::new_v4().to_string(), &crypto).is_err());
+    }
+
+    #[test]
+    fn patch_inspection_detects_capabilities_dependencies_and_secrets() {
+        let directory = tempdir().expect("tempdir");
+        let patch = directory.path().join("proposal.patch");
+        fs::write(
+            &patch,
+            "diff --git a/package.json b/package.json\n+++ b/package.json\n+fetch(url)\n+const access_token = value\n",
+        )
+        .expect("patch");
+        let inspection = inspect_patch_file(&patch).expect("inspection");
+        assert_eq!(inspection.risk, "critical");
+        assert!(inspection
+            .changed_files
+            .contains(&"package.json".to_string()));
+        assert!(inspection.capabilities.contains(&"network".to_string()));
+        assert!(inspection.capabilities.contains(&"credentials".to_string()));
+        assert_eq!(inspection.dependency_changes, vec!["package.json"]);
+        assert!(!inspection.patch_sha256.is_empty());
+    }
+
+    #[test]
+    fn attestation_requires_fresh_offline_canary_and_approved_hash() {
+        let directory = tempdir().expect("tempdir");
+        let patch = directory.path().join("validated.patch");
+        fs::write(
+            &patch,
+            "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n",
+        )
+        .expect("patch");
+        let hash = sha256_file(&patch).expect("hash");
+        let run_id = Uuid::new_v4().to_string();
+        let report = StoredEvolutionReport {
+            version: 1,
+            id: Uuid::new_v4().to_string(),
+            project_name: "test".into(),
+            objective: "test canary".into(),
+            sandbox: StoredSandboxStatus {
+                strong_isolation_available: true,
+                execution_allowed: true,
+                reason: "test".into(),
+            },
+            state: "diff-approved".into(),
+            promotion: String::new(),
+            created_at: "1".into(),
+            artifact_path: String::new(),
+            run_id: String::new(),
+            inspection: Some(inspect_patch_file(&patch).expect("inspection")),
+            diff_approved: true,
+            attempts: 1,
+            attestation: None,
+            rollback_status: String::new(),
+        };
+        let attestation = serde_json::json!({
+            "schemaVersion":2,"runId":run_id,"testProfile":"Static","patchSha256":hash,
+            "dependencyPolicy":"immutable-offline","networkDuringTest":false,
+            "hostFilesystemMountedReadOnly":true,"canaryPassed":true,
+            "canaryFreshNamespace":true,"canaryNetworkDisabled":true,
+            "changedFiles":["a.txt"],"securityFindings":[],"createdAtUtc":"2026-08-09T00:00:00Z"
+        });
+        fs::write(
+            directory.path().join("attestation.json"),
+            serde_json::to_vec(&attestation).unwrap(),
+        )
+        .unwrap();
+        let canary = serde_json::json!({"schemaVersion":1,"runId":run_id,"passed":true,
+            "freshNamespace":true,"networkDuringCanary":false,"hostFilesystemMountedReadOnly":true,"exitCode":0});
+        fs::write(
+            directory.path().join("canary.json"),
+            serde_json::to_vec(&canary).unwrap(),
+        )
+        .unwrap();
+        assert!(verify_run_attestation(directory.path(), &report, &run_id, "Static").is_ok());
+        let mut tampered = canary;
+        tampered["networkDuringCanary"] = serde_json::Value::Bool(true);
+        fs::write(
+            directory.path().join("canary.json"),
+            serde_json::to_vec(&tampered).unwrap(),
+        )
+        .unwrap();
+        assert!(verify_run_attestation(directory.path(), &report, &run_id, "Static").is_err());
     }
 }

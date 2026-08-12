@@ -1,32 +1,53 @@
-# Controllo PC sicuro
+# Controllo PC e workspace
 
-## Capacità operative nella versione 0.6.0
+## Modello operativo
 
-AURA dispone di un primo registro di strumenti Windows realmente eseguiti dal backend Rust:
+AURA usa un capability broker Rust deny-by-default. Il controllo esteso non equivale a una shell amministrativa: segue lo stesso principio di un agente coding locale, cioè piena operatività dentro cartelle esplicitamente autorizzate e conferme visibili per gli effetti che modificano il PC.
 
-- stato di CPU, memoria, dischi, uptime e numero di processi;
-- elenco dei 50 processi con maggiore uso di memoria, senza riga di comando né variabili d'ambiente;
-- apertura, dopo conferma nativa, di Calcolatrice, Blocco note, Esplora file, Gestione attività, Paint, Strumento di cattura e pannelli Impostazioni/Audio/Bluetooth/Sicurezza;
-- terminazione di un singolo PID dopo conferma, con denylist dei processi critici e dell'app AURA;
-- blocco della sessione Windows dopo conferma.
+Restano disponibili anche metriche CPU/RAM/dischi, elenco limitato dei processi, terminazione PID con protezione dei processi critici, controllo multimediale, blocco sessione e pannelli Windows tipizzati.
 
-I comandi locali sono riconosciuti con grammatica deterministica. Il modello non produce nomi di eseguibili e non riceve una shell. Stringhe come `powershell`, comandi concatenati, percorsi o programmi fuori allowlist vengono rifiutati.
+## Arresto globale delle task
 
-## Comandi supportati
+Il pulsante rosso `Arresta tutto`, sempre visibile, e la scorciatoia `Ctrl+Alt+S` annullano gli stream IA, chiudono il browser controllato, fermano voce/TTS, disarmano la visione e terminano esclusivamente i processi figli registrati da AURA per 3D, Security Center ed Evolution Lab. Non termina applicazioni dell'utente aperte tramite il controllo PC. L'evento è registrato nel ledger di audit.
 
-- `/pc stato` oppure «stato del PC»;
-- `/pc processi`;
-- «apri calcolatrice»;
-- «apri blocco note»;
-- «apri esplora file»;
-- «apri impostazioni», «apri impostazioni bluetooth», «apri impostazioni audio»;
-- «apri sicurezza Windows», «apri gestione attività», «apri Paint»;
-- `termina processo 1234`;
-- «blocca il PC»;
-- `/sandbox stato`.
+## Workspace autorizzati
 
-La dettatura può restare in bozza oppure essere inviata automaticamente sopra la soglia configurata. Un audio ambiguo non è mai un consenso: le azioni mutanti mostrano comunque un dialogo nativo separato.
+- massimo 8 radici specifiche;
+- elenco delle radici cifrato AES-256-GCM con chiave nel Credential Manager;
+- profilo utente completo, dischi, Windows, Program Files, ProgramData, AppData e cartelle di credenziali non autorizzabili;
+- frontend usa un ID grant, non sceglie liberamente la radice a ogni chiamata;
+- percorsi operativi sempre relativi;
+- `..`, prefissi assoluti, symlink, junction e reparse point fuori radice bloccati;
+- lettura UTF-8 fino a 2 MiB, ricerca fino a 200 risultati e profondità 12;
+- scrittura atomica con rollback locale se la sostituzione fallisce;
+- nessuna sovrascrittura implicita durante copia o spostamento;
+- eliminazione esclusivamente tramite Cestino Windows.
 
-## Limiti e prossimi gate
+Le operazioni disponibili sono elenco, ricerca, lettura, creazione/modifica di testo, creazione cartella, copia file, spostamento, apertura di documenti e Cestino. Script ed eseguibili presenti nel workspace non vengono aperti: il codice deve passare dal runner sandbox.
 
-Questa versione non modifica file arbitrari, non installa software dall'agente, non cambia protezioni di sicurezza e non eleva privilegi. Il catalogo è completo rispetto allo scope sicuro dichiarato, non rispetto a «qualsiasi funzione Windows»: nuove azioni devono essere aggiunte come tool tipizzati con policy, conferma e test.
+## Applicazioni installate
+
+AURA indicizza fino a 300 collegamenti `.lnk` presenti nei Menu Start utente e di sistema. Il frontend riceve nome e ID HMAC, non il percorso del collegamento. All'avvio il backend ricalcola l'ID, verifica che il collegamento esista ancora e mostra una conferma nativa Windows. Percorsi eseguibili e argomenti arbitrari non sono accettati.
+
+## Comandi chat e voce
+
+Dopo aver autorizzato almeno un workspace, il primo grant può essere controllato anche tramite grammatica locale deterministica:
+
+- `mostra i file del workspace`;
+- `elenca i file in src`;
+- `leggi file README.md`;
+- `crea file note.txt con contenuto Ciao`;
+- `crea cartella docs/nuova`;
+- `apri file rapporto.pdf`;
+- `cestina vecchio.txt`.
+
+Questi intenti vengono interpretati soltanto dal messaggio dell'utente o dalla sua trascrizione vocale, non da testo trovato in pagine web o documenti RAG.
+
+## Limiti intenzionali residui
+
+- niente shell generata liberamente dal modello;
+- niente esecuzione di `.exe`, `.ps1`, `.bat`, `.cmd`, `.js`, `.vbs`, `.msi` o collegamenti dal workspace;
+- niente azioni elevate invisibili;
+- niente piano multi-step autonomo finché sandbox forte e rollback transazionale non sono operativi.
+
+Questi limiti non riducono il controllo quotidiano di file e applicazioni, ma impediscono che una prompt injection trasformi AURA in un esecutore arbitrario.

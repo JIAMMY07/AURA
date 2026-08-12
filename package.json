@@ -5,19 +5,31 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "pnpm sync:vision-runtime",
     "build": "tsc --noEmit && vite build",
     "build:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
     "build:windows:debug": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Debug",
-    "test": "vitest run",
+    "sign:windows:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows-artifacts.ps1 -CreateLocalCertificate",
+    "verify:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows-distribution.ps1",
+    "test": "vitest run && node --test integrations/alexa/*.node-test.mjs",
+    "test:e2e": "playwright test",
+    "test:evolution": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-evolution-promotion.ps1",
+    "test:evolution:isolation": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-evolution-isolation.ps1",
+    "test:all": "pnpm test && pnpm test:evolution && pnpm build && pnpm test:e2e",
+    "test:all:host": "pnpm test:all && pnpm test:evolution:isolation",
+    "sync:vision-runtime": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-vision-runtime.ps1",
     "tauri": "tauri"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "0.10.17",
     "@tauri-apps/api": "^2.0.0",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tauri-apps/cli": "^2.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

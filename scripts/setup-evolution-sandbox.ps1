@@ -27,9 +27,9 @@ if (-not $ubuntu) {
     if ($LASTEXITCODE -ne 0) { throw 'Installazione Ubuntu WSL fallita.' }
 }
 
-wsl.exe --distribution Ubuntu --user root --exec bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --no-install-recommends bubblewrap ca-certificates git nodejs npm cargo rustc && npm install -g pnpm@9.15.4 && printf AURA_WSL_BWRAP_V1 >/etc/aura-sandbox-version'
+wsl.exe --distribution Ubuntu --user root --exec bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --no-install-recommends bubblewrap ca-certificates git nodejs npm cargo rustc && npm install -g pnpm@9.15.4 && printf AURA_WSL_BWRAP_V1 >/etc/aura-sandbox-version && printf "[interop]\nappendWindowsPath=false\n" >/etc/wsl.conf'
 if ($LASTEXITCODE -ne 0) { throw 'Provisioning del runtime AURA fallito.' }
 
-wsl.exe --distribution Ubuntu --user root --exec bwrap --unshare-all --die-with-parent --new-session --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 --ro-bind /etc /etc --proc /proc --dev /dev --tmpfs /tmp --chdir /tmp /bin/sh -lc 'test ! -e /mnt/c && touch /tmp/write-test && test -w /tmp'
+wsl.exe --distribution Ubuntu --user root --exec bwrap --unshare-all --die-with-parent --new-session --clearenv --setenv PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --setenv HOME /tmp --setenv LANG C.UTF-8 --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 --ro-bind /etc /etc --proc /proc --dev /dev --tmpfs /tmp --chdir /tmp /bin/sh -lc 'test "$(cat /etc/aura-sandbox-version)" = AURA_WSL_BWRAP_V1 && test ! -e /mnt/c && touch /tmp/write-test && test -w /tmp'
 if ($LASTEXITCODE -ne 0) { throw 'Test di isolamento bubblewrap fallito: Evolution Lab resta disabilitato.' }
 Write-Host 'AURA sandbox WSL+bubblewrap installata e test base superato.'

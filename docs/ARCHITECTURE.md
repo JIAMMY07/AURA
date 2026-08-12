@@ -39,17 +39,19 @@ Encrypted local storage
 ## Componenti
 
 - **Desktop UI:** Tauri 2, React e TypeScript. Chat, push-to-talk, piano, approvazioni, cronologia, uso risorse, log e arresto immediato.
+- **Workspace conversazioni:** progetti e chat multiple con contenuti, nomi e titoli cifrati; la chat preesistente viene migrata nel progetto principale. Ogni chat dispone di una coda transitoria fino a 20 domande: durante una generazione il submit accoda, gli elementi restano modificabili/eliminabili e “Invia ora” interrompe soltanto la generazione AI corrente per dare priorità alla domanda scelta. L'esportazione PDF viene generata su richiesta e salvata in `Documenti\AURA\Esportazioni`.
 - **Agent Orchestrator:** mantiene la macchina a stati del lavoro; impone limiti di passi, tempo, token e tentativi.
-- **Ollama Adapter:** health check, catalogo modelli, streaming e profili Leggero/Bilanciato/Qualità.
+- **Ollama Adapter:** health check, catalogo modelli, streaming e profili Luna/Terra/Sole.
 - **Policy Engine:** valuta capacità, oggetto, destinazione, impatto, reversibilità e provenienza dei dati. Restituisce `allow`, `confirm`, `sandbox` o `deny`.
 - **Approval Broker:** mostra una descrizione concreta dell'effetto e usa autorizzazioni a singola azione, sessione o regola stretta.
 - **Typed Tool Registry:** espone solo strumenti registrati con input/output JSON validati. Niente comandi generati liberamente dal modello.
-- **PC Runner:** azioni Windows consentite, processi figli con timeout, radici scrivibili e identità non amministrativa.
+- **PC capability broker:** metriche/processi, catalogo applicazioni Start con ID HMAC e workspace cifrati. I percorsi vengono canonicalizzati; letture restano nello scope, mentre write/move/open/delete richiedono conferma nativa. Il runner generico non è abilitato finché non dispone di isolamento, timeout e identità non elevata attestati.
 - **Browser Runner:** profilo separato per ricerche automatiche; allowlist/denylist, download in quarantena, takeover manuale e modalità accesso esteso esplicita e temporanea.
 - **Connector Host:** REST/OpenAPI, GraphQL, OAuth 2.1/OIDC, webhook, gRPC e MCP tramite manifest e scope minimi.
 - **Evolution Lab:** genera una proposta di plugin, esegue analisi e test in sandbox/VM con dati fittizi, produce diff e report; la promozione richiede firma e consenso.
 - **Security Center:** modulo Tauri/UI con postura Defender, firme, scansioni, Firewall, UAC, Secure Boot, BitLocker, Windows Update, hash/firma dell'eseguibile e audit; solo difesa, nessun exploit, modifica delle esclusioni o estrazione di credenziali.
 - **Storage:** SQLite per stato e audit; indice vettoriale opzionale; Windows Credential Manager + DPAPI per segreti; cifratura applicativa autenticata.
+- **Task Control:** kill switch globale sempre visibile (`Ctrl+Alt+S`) che annulla generazioni, chiude la WebView controllata, termina i processi figli registrati e disarma voce/visione; ogni arresto entra nell'audit.
 
 ## Flusso di una richiesta
 

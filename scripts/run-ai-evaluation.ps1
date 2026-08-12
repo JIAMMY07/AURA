@@ -44,7 +44,7 @@ function Invoke-EvalCase($case) {
       @{ role="user"; content=$case.prompt }
     )
     options = @{ temperature=0; num_ctx=4096; num_predict=256; seed=42 }
-    keep_alive = "5m"
+    keep_alive = "0"
   } | ConvertTo-Json -Depth 8
   $watch = [Diagnostics.Stopwatch]::StartNew()
   try {
