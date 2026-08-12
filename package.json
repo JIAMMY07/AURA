@@ -17,7 +17,7 @@
     "test:evolution:isolation": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-evolution-isolation.ps1",
     "test:all": "pnpm test && pnpm test:evolution && pnpm build && pnpm test:e2e",
     "test:all:host": "pnpm test:all && pnpm test:evolution:isolation",
-    "sync:vision-runtime": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-vision-runtime.ps1",
+    "sync:vision-runtime": "node scripts/sync-vision-runtime.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
