@@ -11,25 +11,25 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-aes-gcm = "0.10"
-base64 = "0.22"
+aes-gcm = "0.11"
+base64 = "0.23"
 hex = "0.4"
-hkdf = "0.12"
-hmac = "0.12"
+hkdf = "0.13"
+hmac = "0.13"
 keyring = { version = "3", default-features = false, features = ["windows-native"] }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 pdf-extract = "0.12"
-quick-xml = "0.41"
-rusqlite = { version = "0.32", features = ["bundled"] }
-sha2 = "0.10"
+quick-xml = "0.42"
+rusqlite = { version = "0.40", features = ["bundled"] }
+sha2 = "0.11"
 uuid = { version = "1", features = ["v4"] }
 wait-timeout = "0.2"
 sysinfo = "0.39"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_System_Shutdown"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
-zip = { version = "6", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 tokio = { version = "1", features = ["macros", "time"] }
 trash = "5"
 
